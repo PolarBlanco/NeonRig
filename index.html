@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NEON RIG</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">NEON<b>//</b>RIG<small>virtual pedalboard</small></div>
+
+  <button id="power" class="power" title="Start / stop audio"><span class="power-ring"></span><span id="powerLabel">START</span></button>
+
+  <div class="group">
+    <label class="field" title="AUTO picks your guitar interface or USB guitar cable, and follows you when you plug something else in">INPUT<select id="inputDevice"><option value="">AUTO</option></select></label>
+    <label class="field" title="Which input channel the guitar is on. AUTO follows the one that lights up.">CH<select id="inputChannel">
+      <option value="auto">AUTO</option>
+      <option value="1">IN 1</option>
+      <option value="2">IN 2 (INST)</option>
+      <option value="mix">IN 1+2</option>
+    </select></label>
+    <div class="chmeters" title="Level on each input channel. Your guitar should light one of these.">
+      <div class="meter mini" id="mCh1"><i></i><span>1</span></div>
+      <div class="meter mini" id="mCh2"><i></i><span>2</span></div>
+    </div>
+    <label class="field" id="outputWrap" title="AUTO plays out of the same box the guitar comes in on, or the computer's headphones/speakers for a USB guitar cable">OUTPUT<select id="outputDevice"><option value="">AUTO</option></select></label>
+  </div>
+
+  <div class="group" title="Noise control, before the pedals">
+    <label class="field" title="Removes mains hum (and its harmonics) before it reaches the drives. 60 Hz: Americas; 50 Hz: most other countries.">HUM<select id="hum">
+      <option value="0">OFF</option>
+      <option value="50">50 Hz</option>
+      <option value="60">60 Hz</option>
+    </select></label>
+    <label class="field slider" title="Noise gate threshold: silence below this level is muted. Far left = off. Double-click resets.">GATE<input type="range" id="gate" min="-90" max="-30" step="1"><output id="gateVal"></output></label>
+    <span class="gate-led" id="gateLed" title="Lit while the gate is letting sound through"></span>
+    <button id="learn" title="Measures your rig's hum and hiss for 2 seconds (strings quiet) and sets HUM and GATE for you">LEARN NOISE</button>
+  </div>
+
+  <div class="group">
+    <label class="field slider" title="Input level into the pedals. Raise it for a quiet guitar or USB cable. Double-click resets.">GAIN<input type="range" id="inGain" min="-12" max="24" step="0.5"><output id="inGainVal"></output></label>
+    <div class="meter" id="mIn" title="Input level after GAIN"><i></i></div>
+    <label class="field slider" title="Overall output volume. Far left = mute. Double-click resets.">MASTER<input type="range" id="master" min="-40" max="6" step="0.5"><output id="masterVal"></output></label>
+    <div class="meter" id="mOut" title="Output level"><i></i></div>
+    <button id="cab" class="toggle" title="Speaker-cabinet voicing for headphones / PA. Turn off when playing into a real amp.">CAB SIM</button>
+    <span id="latency" class="readout" title="Estimated round-trip latency reported by the browser">-- ms</span>
+    <label class="field" title="Audio buffer. LOW = least delay. If you hear crackles or dropouts, try SAFE, then MAX (more delay, but steadier on a busy computer).">BUF<select id="latencyMode">
+      <option value="interactive">LOW</option>
+      <option value="0.02">SAFE</option>
+      <option value="0.04">MAX</option>
+    </select></label>
+  </div>
+
+  <div class="group">
+    <select id="presetSelect" title="Load a preset: factory tones or your own"></select>
+    <button id="presetSave" title="Save the current board as a preset">SAVE</button>
+    <button id="presetDelete" title="Delete the selected preset (yours only)">DEL</button>
+    <button id="helpBtn" class="round" title="Setup help">?</button>
+  </div>
+</header>
+
+<main id="boardWrap">
+  <div id="board">
+    <svg id="cables" aria-hidden="true"></svg>
+    <div class="io-jack in" id="jackIn"><span class="io-plug"></span><b>GUITAR</b><small>IN</small></div>
+    <div class="io-jack out" id="jackOut"><span class="io-plug"></span><b>AMP</b><small>OUT</small></div>
+  </div>
+</main>
+
+<footer class="chainbar">
+  <span class="chain-title">SIGNAL CHAIN</span>
+  <div id="chain"></div>
+  <div class="chain-actions">
+    <div class="addwrap">
+      <button id="addBtn">+ ADD PEDAL</button>
+      <div id="addMenu" class="menu" hidden></div>
+    </div>
+    <button id="arrangeBtn" title="Line the pedals up in signal-chain order">ARRANGE</button>
+  </div>
+</footer>
+
+<div id="help" class="overlay" hidden>
+  <div class="panel">
+    <button class="close" id="helpClose" title="Close">×</button>
+    <h2>PLUG IN</h2>
+    <ol>
+      <li>Plug the guitar into an <b>audio interface</b> or a <b>USB guitar cable</b> (such as the Rocksmith Real Tone Cable). On a Scarlett: the <b>instrument jack</b> (input 2 on a Solo), <b>INST</b> on, and <b>Direct Monitor OFF</b>.</li>
+      <li>Press <b>START</b> and allow microphone access. <b>INPUT</b> and <b>OUTPUT</b> on <b>AUTO</b> find the guitar and play out of the same box, or out of the computer's headphones/speakers for a cable with no output (Rocksmith). Plug things in or swap them any time; AUTO follows.</li>
+      <li>Use <b>wired</b> headphones or speakers. Bluetooth adds too much delay to play along.</li>
+      <li><b>Into your real amp:</b> load <b>Real Amp: Chorus + Reverb</b> (CAB SIM off), take the Scarlett's <b>LINE OUT L</b> to the amp's input or FX return with a mono cable, Direct Monitor <b>OFF</b>, and start with the output low.</li>
+      <li>Keep the input out of the red: on a Scarlett, its gain ring should glow <b>green</b> when you dig in. Fine-tune with <b>GAIN</b> here.</li>
+      <li>Watch the little <b>1 / 2</b> meters. Choose the channel your guitar lights up (AUTO does this for you).</li>
+    </ol>
+    <h2>KILL THE NOISE</h2>
+    <ul>
+      <li>Hold the strings quiet and press <b>LEARN NOISE</b>. It finds your mains hum (50 or 60 Hz) and sets the <b>GATE</b> just above your hiss.</li>
+      <li>Buzz that comes and goes as you turn is from single-coil pickups: face away from monitors and dimmers.</li>
+      <li>Crackles or dropouts are the computer, not the guitar: set <b>BUF</b> to <b>SAFE</b> (or <b>MAX</b>).</li>
+      <li>Static even when nothing is plugged in usually means a ground loop: try the laptop on battery (charger unplugged).</li>
+    </ul>
+    <h2>PLAY</h2>
+    <ul>
+      <li><b>Knobs</b>: drag up/down, or scroll. Hold Shift for fine moves; double-click resets.</li>
+      <li><b>Footswitch</b> (bottom of each pedal): click to engage or bypass. The LED shows the state.</li>
+      <li><b>Move pedals</b>: drag them by the body. <b>Reorder the signal</b>: drag the chips in SIGNAL CHAIN.</li>
+      <li><b>ARRANGE</b> lines everything up in chain order. <b>+ ADD PEDAL</b> adds more (doubles are fine).</li>
+      <li>The board saves itself. Use <b>SAVE</b> to keep named presets.</li>
+    </ul>
+    <h2>LATENCY</h2>
+    <p>Browsers add some delay. Use Chrome or Edge, close other audio apps, and set the Scarlett to 48 kHz in your system sound settings. The readout in the top bar is the browser's own estimate.</p>
+  </div>
+</div>
+
+<div id="toast" class="toast" hidden></div>
+
+<script src="dsp.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
