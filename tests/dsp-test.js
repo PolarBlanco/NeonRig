@@ -492,11 +492,121 @@ for (let m = 0; m < MODES.length; m++) {
   const rq = run(q, 0.5, sine(500, 0.2));
   check(rq.L.every((v, i) => Math.abs(v - Math.fround(sine(500, 0.2)(i))) < 1e-6), 'Reverb bypass passes dry untouched');
 }
+// ------------------------------------------------------------------ tremolo
+{
+  // Full depth: the level swings from the input's peak down to near silence at RATE, never above.
+  const env = (a) => { const w = Math.round(SR * 0.004), out = []; for (let i = 0; i + w <= a.length; i += w) out.push(rms(a, i, i + w)); return out; };
+  for (const wave of ['SINE', 'OPTO', 'SQR']) {
+    const r = run(make('neon-trem', { rate: 0.45, depth: 1, wave }), 3, sine(1000, 0.3));
+    const e = env(r.L).slice(50), hi = Math.max(...e), lo = Math.min(...e);
+    const mean = e.reduce((s, v) => s + v, 0) / e.length;
+    const ups = []; for (let i = 1; i < e.length; i++) if (e[i - 1] < mean && e[i] >= mean) ups.push(i);
+    const hz = (ups.length - 1) / ((ups[ups.length - 1] - ups[0]) * 0.004), want = 1.5 * Math.pow(8, 0.45);
+    check(finite(r.L) && peak(r.L) <= 0.3 + 1e-6 && lo < hi * 0.06 && Math.abs(hz - want) / want < 0.06,
+      `Tremolo ${wave}: full-depth swing at RATE, never louder than the input`,
+      `${dB(lo / hi).toFixed(0)} dB dips, ${hz.toFixed(2)} Hz (want ${want.toFixed(2)}), peak ${peak(r.L).toFixed(3)}`);
+  }
+}
+{
+  const p = make('neon-trem', { rate: 0.6, depth: 1, wave: 'SINE' });
+  let k = 0;
+  const r = run(p, 3, sine(220, 0.3), (t) => { if (t >= k * 0.2) { send(p, { type: 'param', name: 'wave', value: ['SINE', 'SQR', 'OPTO'][k % 3] }); k++; } });
+  let j = 0; for (let i = 1; i < r.L.length; i++) j = Math.max(j, Math.abs(r.L[i] - r.L[i - 1]));
+  check(finite(r.L) && j < 0.02, 'Tremolo shape switching is click-safe', `max step ${j.toFixed(4)} (the sine alone steps ${(2 * Math.PI * 220 / SR * 0.3).toFixed(4)})`);
+  const q = make('neon-trem', { depth: 1 }, false);
+  const rq = run(q, 0.5, sine(500, 0.2));
+  check(rq.L.every((v, i) => Math.abs(v - Math.fround(sine(500, 0.2)(i))) < 1e-6), 'Tremolo bypass passes dry untouched');
+}
+
+// ------------------------------------------------------------------ tape echo
+{
+  // One click in: repeats arrive TIME apart (give or take the tape's wow), each quieter than the last.
+  const p = make('neon-echo', { time: 0.5, repeats: 0.5, mix: 1 });
+  const r = run(p, 1.2, (i) => (i < 48 ? 0.5 : 0));
+  const want = 0.06 * Math.pow(12.5, 0.5);
+  const peakNear = (t) => { let m = 0, at = 0; for (let i = Math.round((t - 0.02) * SR); i < (t + 0.02) * SR; i++) if (Math.abs(r.L[i]) > m) { m = Math.abs(r.L[i]); at = i; } return [m, at / SR]; };
+  const [p1, t1] = peakNear(want), [p2, t2] = peakNear(2 * want), [p3] = peakNear(3 * want);
+  check(Math.abs(t1 - want) < 0.004 && Math.abs(t2 - t1 - want) < 0.004 && p1 > p2 && p2 > p3 && p3 > 0.01,
+    'Tape echo: repeats TIME apart, each one quieter', `${(t1 * 1000).toFixed(1)} / ${(t2 * 1000).toFixed(1)} ms (want ${(want * 1000).toFixed(1)}), peaks ${p1.toFixed(3)} > ${p2.toFixed(3)} > ${p3.toFixed(3)}`);
+}
+{
+  // REPEATS flat out with a loud input for 10 s: the tape saturates instead of running away, and
+  // the repeats still die away once the playing stops.
+  const r = run(make('neon-echo', { time: 0.3, repeats: 1, mix: 1 }), 30, burst(0.8, 10));
+  const during = rms(r.L, 8 * SR, 10 * SR), after = rms(r.L, 28 * SR, 30 * SR);
+  check(finite(r.L) && peak(r.L) < 2.5 && after < during * 0.1, 'Tape echo at full REPEATS stays stable and dies away',
+    `peak ${peak(r.L).toFixed(2)}, last 2 s ${dB(after).toFixed(1)} dBFS vs ${dB(during).toFixed(1)} while playing`);
+}
+{
+  // Sweeping TIME while it repeats glides (pitch-bends) instead of clicking.
+  const p = make('neon-echo', { time: 0.3, repeats: 0.6, mix: 0.8 });
+  let k = 0;
+  const r = run(p, 6, pluck(196, 0.3), (t) => { if (t >= k * 0.5) { send(p, { type: 'param', name: 'time', value: [0.1, 0.9, 0.4, 0][k % 4] }); k++; } });
+  let j = 0; for (let i = 1; i < r.L.length; i++) j = Math.max(j, Math.abs(r.L[i] - r.L[i - 1]));
+  check(finite(r.L) && j < 0.25, 'Tape echo TIME changes are click-safe', `max step ${j.toFixed(3)}`);
+  // Bypass: dry untouched from the start; repeats already on the tape ring out.
+  const q = make('neon-echo', { mix: 1 }, false);
+  const rq = run(q, 0.5, sine(500, 0.2));
+  check(rq.L.every((v, i) => Math.abs(v - Math.fround(sine(500, 0.2)(i))) < 1e-6), 'Tape echo bypass passes dry untouched');
+  // Playing until 0.5 s, bypassed at 0.3 s: the repeats of what went onto the tape before 0.3 s
+  // carry on after the playing stops.
+  const e = make('neon-echo', { time: 0.4, repeats: 0.5, mix: 0.6 });
+  const re = run(e, 1, burst(0.3, 0.5), (t) => { if (t >= 0.3 && e.engaged) send(e, { type: 'engaged', value: false }); });
+  const tail = rms(re.L, 0.52 * SR, 0.62 * SR);
+  check(tail > 1e-3, 'Tape echo repeats ring out after bypass', `${dB(tail).toFixed(1)} dBFS just after the playing stops`);
+}
+// ------------------------------------------------------------------ phaser
+{
+  // A 500 Hz tone through a slow sweep: a notch passes through it (deep dips), and SCRIPT
+  // (no feedback) never makes it louder than it went in.
+  const env = (a) => { const w = Math.round(SR * 0.004), out = []; for (let i = 0; i + w <= a.length; i += w) out.push(rms(a, i, i + w)); return out; };
+  const r = run(make('neon-phaser', { speed: 0.3, mode: 'SCRIPT' }), 8, sine(500, 0.3));
+  const e = env(r.L).slice(100), hi = Math.max(...e), lo = Math.min(...e);
+  check(finite(r.L) && peak(r.L) <= 0.3 * 1.01 && lo < hi * 0.1, 'Phaser SCRIPT: a notch sweeps through, no gain',
+    `${dB(lo / hi).toFixed(0)} dB dips, peak ${peak(r.L).toFixed(3)} for a 0.300 input`);
+  const b = run(make('neon-phaser', { speed: 1, mode: 'BLOCK' }), 10, burst(0.8, 8));
+  check(finite(b.L) && peak(b.L) < 2, 'Phaser BLOCK (feedback) at full speed stays stable', `peak ${peak(b.L).toFixed(2)}`);
+}
+{
+  const p = make('neon-phaser', { speed: 0.5, mode: 'SCRIPT' });
+  let k = 0;
+  const r = run(p, 3, sine(220, 0.3), (t) => { if (t >= k * 0.25) { send(p, { type: 'param', name: 'mode', value: k % 2 ? 'BLOCK' : 'SCRIPT' }); k++; } });
+  let j = 0; for (let i = 1; i < r.L.length; i++) j = Math.max(j, Math.abs(r.L[i] - r.L[i - 1]));
+  check(finite(r.L) && j < 0.05, 'Phaser SCRIPT/BLOCK switching is click-safe', `max step ${j.toFixed(4)}`);
+  const q = make('neon-phaser', {}, false);
+  const rq = run(q, 0.5, sine(500, 0.2));
+  check(rq.L.every((v, i) => Math.abs(v - Math.fround(sine(500, 0.2)(i))) < 1e-6), 'Phaser bypass passes dry untouched');
+}
+
+// ------------------------------------------------------------------ flanger
+{
+  // Held still (DEPTH 0), it is a comb filter: a tone at 1/(2 x delay) cancels, at 1/delay it
+  // comes through at full level. MANUAL 0.5 = 0.5 ms x 12^0.5 = 1.73 ms.
+  const d = 0.0005 * Math.pow(12, 0.5);
+  const level = (f) => { const r = run(make('neon-flanger', { manual: 0.5, depth: 0, rate: 0.3, res: 0 }), 0.5, sine(f, 0.3)); return rms(r.L, SR * 0.25, SR * 0.5) / (0.3 / Math.SQRT2); };
+  const cut = level(1 / (2 * d)), pass = level(1 / d);
+  check(cut < 0.05 && Math.abs(pass - 1) < 0.05, 'Flanger: comb notch and peak where the delay puts them',
+    `${(1 / (2 * d)).toFixed(0)} Hz ${dB(cut).toFixed(1)} dB, ${(1 / d).toFixed(0)} Hz ${dB(pass).toFixed(1)} dB`);
+}
+{
+  const r = run(make('neon-flanger', { manual: 0.2, depth: 1, rate: 1, res: 1 }), 30, burst(0.8, 10));
+  const during = rms(r.L, 8 * SR, 10 * SR), after = rms(r.L, 28 * SR, 30 * SR);
+  check(finite(r.L) && peak(r.L) < 3 && after < during * 0.01, 'Flanger at full RES stays stable and goes quiet after',
+    `peak ${peak(r.L).toFixed(2)}, last 2 s ${dB(after).toFixed(1)} dBFS`);
+  const p = make('neon-flanger', { manual: 0.5, depth: 0.7, rate: 0.4, res: 0.6 });
+  let k = 0;
+  const rm = run(p, 4, pluck(196, 0.3), (t) => { if (t >= k * 0.5) { send(p, { type: 'param', name: 'manual', value: k % 2 }); k++; } });
+  let j = 0; for (let i = 1; i < rm.L.length; i++) j = Math.max(j, Math.abs(rm.L[i] - rm.L[i - 1]));
+  check(finite(rm.L) && j < 0.3, 'Flanger MANUAL moves are click-safe', `max step ${j.toFixed(3)}`);
+  const q = make('neon-flanger', {}, false);
+  const rq = run(q, 0.5, sine(500, 0.2));
+  check(rq.L.every((v, i) => Math.abs(v - Math.fround(sine(500, 0.2)(i))) < 1e-6), 'Flanger bypass passes dry untouched');
+}
 {
   // Full default chain, the way the app wires it, for a CPU budget.
   const chain = [make('neon-input', { hum: 60, gate: -65 }), make('neon-wah'), make('neon-fuzz', { fuzz: 0.8 }),
-    make('neon-ts', { drive: 0.5 }), make('neon-vibe'), make('neon-amp', { gain: 0.8 }),
-    make('neon-chorus', { mode: 'C' }), make('neon-reverb', { mode: 6 })];
+    make('neon-ts', { drive: 0.5 }), make('neon-vibe'), make('neon-phaser'), make('neon-flanger'), make('neon-amp', { gain: 0.8 }),
+    make('neon-chorus', { mode: 'C' }), make('neon-trem'), make('neon-echo'), make('neon-reverb', { mode: 6 })];
   const secs = 10, total = secs * SR;
   const bufs = Array.from({ length: chain.length + 1 }, () => [new Float32Array(BLOCK), new Float32Array(BLOCK)]);
   const g = pluck(98, 0.3);
@@ -507,7 +617,7 @@ for (let m = 0; m < MODES.length; m++) {
   }
   const ms = Number(process.hrtime.bigint() - t0) / 1e6;
   const pct = ms / (secs * 1000) * 100;
-  check(pct < 35, 'Full chain (input + all seven pedals) fits the real-time budget', `${pct.toFixed(1)}% of one core (${(ms / (total / BLOCK) * 1000).toFixed(0)} µs per 128-sample block, budget ${(BLOCK / SR * 1e6).toFixed(0)} µs)`);
+  check(pct < 35, 'Full chain (input + all eleven pedals) fits the real-time budget', `${pct.toFixed(1)}% of one core (${(ms / (total / BLOCK) * 1000).toFixed(0)} µs per 128-sample block, budget ${(BLOCK / SR * 1e6).toFixed(0)} µs)`);
 }
 {
   // Pickup selector: a neck and a bridge pickup must still sound different through drive. Synthetic
@@ -541,13 +651,43 @@ for (let m = 0; m < MODES.length; m++) {
   // into denormals, which once made the TS and amp ~5x slower and choked the audio thread.
   const cost = (p, secs, gen) => { const t0 = process.hrtime.bigint(); run(p, secs, gen); return Number(process.hrtime.bigint() - t0); };
   for (const [name, params] of [['neon-input', { gate: -60 }], ['neon-wah', {}], ['neon-fuzz', {}], ['neon-ts', {}],
-    ['neon-vibe', {}], ['neon-chorus', {}], ['neon-amp', { voice: 'FENDER' }], ['neon-reverb', { mode: 3 }]]) {
+    ['neon-vibe', {}], ['neon-chorus', {}], ['neon-trem', {}], ['neon-echo', { repeats: 0.8 }], ['neon-phaser', { mode: 'BLOCK' }], ['neon-flanger', { res: 0.8 }], ['neon-amp', { voice: 'FENDER' }], ['neon-reverb', { mode: 3 }]]) {
     const p = make(name, params);
     const playing = cost(p, 2, pluck(110, 0.3));
     cost(p, 10, () => 0);
     const silent = cost(p, 2, () => 0);
     check(silent < playing * 1.5, `${name} stays cheap in silence (no denormal slowdown)`, `${(silent / playing).toFixed(2)}x the cost of playing`);
   }
+}
+
+// ---- Loop recorder: segments land on exact frames of the audio clock, whatever the block edges
+{
+  const rec = new registry['neon-rec']();
+  const takes = [];
+  rec.port.postMessage = (m) => takes.push(m);
+  // Two overlapping segments (as the looper arms them: each chord carries a short crossfade tail),
+  // starting mid-block and ending mid-block. Input sample value = its frame number.
+  // 'b' brings its own buffers, as the page sends them, so the audio thread allocates nothing.
+  const given = [new Float32Array(333), new Float32Array(333)];
+  const segs = [{ key: 'a', start: 1000, len: 700 }, { key: 'b', start: 1650, len: 333, ch: given }];
+  send(rec, { type: 'arm', session: 7, segs });
+  const inL = new Float32Array(BLOCK), inR = new Float32Array(BLOCK);
+  for (let f = 0; f < 4096; f += BLOCK) {
+    globalThis.currentFrame = f;
+    for (let i = 0; i < BLOCK; i++) { inL[i] = f + i; inR[i] = -(f + i); }
+    rec.process([[inL, inR]], [[new Float32Array(BLOCK)]]);
+  }
+  const exact = segs.every((s) => {
+    const t = takes.find((m) => m.key === s.key);
+    return t && t.session === 7 && t.ch[0].length === s.len &&
+      t.ch[0].every((v, i) => v === s.start + i) && t.ch[1].every((v, i) => v === -(s.start + i));
+  });
+  check(exact && takes.length === 2, 'Loop recorder captures each segment sample-exact on the audio clock',
+    takes.map((t) => `${t.key}: ${t.ch[0][0]}..${t.ch[0][t.ch[0].length - 1]}`).join(', '));
+  const order = takes.map((t) => t.key).join('');
+  check(order === 'ab', 'Loop recorder hands each segment over as soon as it is full', `order ${order}`);
+  const tb = takes.find((t) => t.key === 'b');
+  check(!!tb && tb.ch[0] === given[0] && tb.ch[1] === given[1], 'Loop recorder fills the buffers the page hands it (no audio-thread allocation)');
 }
 
 console.log(failures ? `\n${failures} check(s) failed` : '\nAll DSP checks passed');

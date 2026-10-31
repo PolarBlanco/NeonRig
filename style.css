@@ -1,3 +1,9 @@
+/* Fonts ship with the app (SIL OFL 1.1, licences in fonts/), so nothing is fetched from the web. */
+@font-face { font-family: 'Orbitron'; font-weight: 500; font-display: swap; src: url('fonts/orbitron-500.woff2') format('woff2'); }
+@font-face { font-family: 'Orbitron'; font-weight: 700; font-display: swap; src: url('fonts/orbitron-700.woff2') format('woff2'); }
+@font-face { font-family: 'Orbitron'; font-weight: 900; font-display: swap; src: url('fonts/orbitron-900.woff2') format('woff2'); }
+@font-face { font-family: 'Share Tech Mono'; font-weight: 400; font-display: swap; src: url('fonts/share-tech-mono-400.woff2') format('woff2'); }
+
 :root {
   --bg: #07060d;
   --panel: #0d0c16;
@@ -69,7 +75,7 @@ button, select, input { font: inherit; color: inherit; }
   letter-spacing: .14em;
   color: var(--dim);
 }
-select, .topbar button, .chainbar button {
+select, input[type=number], .topbar button, .chainbar button, .loopbar button {
   background: var(--panel-2);
   border: 1px solid var(--line);
   border-radius: 6px;
@@ -80,11 +86,14 @@ select, .topbar button, .chainbar button {
 }
 select { max-width: 220px; color: var(--text); }
 select option, select optgroup { background: #14121f; }
-.topbar button:hover, .chainbar button:hover, select:hover, select:focus-visible {
+.topbar button:hover, .chainbar button:hover, .loopbar button:hover, select:hover, select:focus-visible,
+input[type=number]:hover, input[type=number]:focus-visible {
   border-color: var(--cyan);
   box-shadow: 0 0 8px rgba(46, 230, 255, .35);
   outline: none;
 }
+.loopbar button:disabled, .loopbar select:disabled, .loopbar input:disabled { opacity: .4; cursor: not-allowed; box-shadow: none; border-color: var(--line); }
+input[type=number] { width: 58px; color: var(--text); cursor: text; }
 button.round { width: 28px; height: 28px; padding: 0; border-radius: 50%; font-weight: bold; }
 .toggle.on { border-color: var(--cyan); color: var(--cyan); box-shadow: 0 0 10px rgba(46, 230, 255, .4), inset 0 0 8px rgba(46, 230, 255, .2); }
 
@@ -174,6 +183,112 @@ button.round { width: 28px; height: 28px; padding: 0; border-radius: 50%; font-w
   text-shadow: 0 0 6px rgba(255, 197, 61, .5);
   min-width: 64px;
 }
+
+/* ------------------------------------------------------------------ loop bar (metronome + looper) */
+
+.loopbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 18px;
+  padding: 7px 16px;
+  background: #0a0912;
+  border-bottom: 1px solid #12333b;
+  box-shadow: 0 1px 0 rgba(46, 230, 255, .18);
+  position: relative;
+  z-index: 40;
+  transition: box-shadow .2s, border-color .2s;
+}
+.loopbar.recording { border-bottom-color: var(--pink); animation: rec-glow 1s ease-in-out infinite alternate; }
+@keyframes rec-glow { from { box-shadow: 0 1px 0 rgba(255, 46, 136, .4); } to { box-shadow: 0 1px 0 var(--pink), 0 6px 22px rgba(255, 46, 136, .3); } }
+.loopbar small { color: var(--dim); font-size: 10px; letter-spacing: .1em; }
+
+.beats { display: flex; align-items: center; gap: 5px; }
+.beats i {
+  width: 9px; height: 9px; border-radius: 50%;
+  background: #15131f; border: 1px solid var(--line);
+  transition: background .06s, box-shadow .06s;
+}
+.beats i:first-child { width: 12px; height: 12px; border-color: rgba(255, 46, 136, .5); }
+.beats i.on { background: var(--cyan); border-color: var(--cyan); box-shadow: 0 0 8px var(--cyan); }
+.beats i.on:first-child { background: var(--pink); border-color: var(--pink); box-shadow: 0 0 10px var(--pink); }
+
+.loopbar { justify-content: space-between; }
+.prog-wrap { display: flex; align-items: center; gap: 10px; order: 3; flex: 1 1 100%; min-width: 0; }
+#prog { display: flex; gap: 4px; flex: 1; min-width: 0; overflow-x: auto; padding: 3px 2px; scrollbar-width: thin; scrollbar-color: #3a3355 transparent; }
+.prog-empty { font-size: 11px; letter-spacing: .12em; color: var(--dim); align-self: center; }
+.chord {
+  --p: 0;
+  position: relative;
+  flex: 1 1 0;
+  min-width: 52px;
+  display: flex; flex-direction: column; align-items: center; gap: 4px;
+  padding: 4px 8px 5px;
+  border: 1px solid rgba(46, 230, 255, .4);
+  border-radius: 6px;
+  background: linear-gradient(90deg, rgba(46, 230, 255, .2) calc(var(--p) * 100%), transparent 0) no-repeat, #0d0c15;
+  color: var(--cyan);
+  cursor: grab;
+  user-select: none;
+  touch-action: none;
+  white-space: nowrap;
+  transition: border-color .1s, box-shadow .1s;
+}
+.chord b { font: 700 12px/1 var(--display); letter-spacing: .06em; }
+.ticks { display: flex; gap: 3px; }
+.ticks i { width: 4px; height: 4px; border-radius: 1px; background: #2a2640; }
+.ticks i.on { background: currentColor; box-shadow: 0 0 4px currentColor; }
+.chord.has::after { /* recorded */
+  content: ''; position: absolute; top: 4px; right: 5px;
+  width: 5px; height: 5px; border-radius: 50%;
+  background: var(--pink); box-shadow: 0 0 6px var(--pink);
+}
+.chord.empty { border-style: dashed; opacity: .55; }
+.chord.now { border-color: var(--cyan); box-shadow: 0 0 12px rgba(46, 230, 255, .5); }
+.chord.now.rec {
+  color: var(--pink); border-color: var(--pink); box-shadow: 0 0 12px rgba(255, 46, 136, .55);
+  background: linear-gradient(90deg, rgba(255, 46, 136, .22) calc(var(--p) * 100%), transparent 0) no-repeat, #0d0c15;
+}
+.chord.dragging { cursor: grabbing; z-index: 5; box-shadow: 0 0 14px var(--cyan); background: #15131f; }
+#prog.locked .chord { cursor: default; }
+
+.readout.pass { min-width: 44px; color: var(--cyan); text-shadow: 0 0 6px rgba(46, 230, 255, .5); }
+#recBtn { color: var(--pink); }
+#recBtn.on { border-color: var(--pink); box-shadow: 0 0 12px rgba(255, 46, 136, .5); animation: rec-blink 1s steps(2, jump-none) infinite; }
+@keyframes rec-blink { 50% { color: #fff; } }
+
+.chord-menu {
+  position: fixed; z-index: 90;
+  width: max-content; max-width: calc(100vw - 12px);
+  background: #0d0c16; border: 1px solid var(--line); border-radius: 8px;
+  padding: 8px 10px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, .6), 0 0 18px rgba(46, 230, 255, .12);
+}
+.cm-row { display: flex; align-items: flex-start; gap: 8px; margin-bottom: 6px; }
+.cm-row > span { width: 48px; flex: none; padding-top: 5px; font-size: 10px; letter-spacing: .12em; color: var(--dim); white-space: nowrap; }
+.cm-row > div { display: flex; flex-wrap: wrap; gap: 3px; max-width: 330px; }
+.chord-menu button {
+  min-width: 34px; padding: 3px 6px;
+  background: var(--panel-2); border: 1px solid var(--line); border-radius: 5px;
+  font-size: 12px; cursor: pointer;
+}
+.chord-menu button:hover { border-color: var(--cyan); }
+.chord-menu button.on { border-color: var(--cyan); color: var(--cyan); box-shadow: 0 0 8px rgba(46, 230, 255, .4); }
+.cm-actions { display: flex; gap: 6px; justify-content: flex-end; padding-top: 4px; border-top: 1px solid var(--line); }
+.cm-actions button { font: 700 10px var(--display); letter-spacing: .1em; padding: 5px 9px; }
+.cm-actions [data-act=del]:hover { border-color: var(--red); color: var(--red); }
+
+.countin {
+  position: fixed; left: 50%; top: 55%; z-index: 80;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  font: 900 180px/1 var(--display);
+  color: var(--cyan);
+  text-shadow: 0 0 30px var(--cyan), 0 0 90px rgba(46, 230, 255, .5);
+}
+.countin.rec { color: var(--pink); text-shadow: 0 0 30px var(--pink), 0 0 90px rgba(255, 46, 136, .5); }
+.countin.beat { animation: count-pop .45s ease-out; }
+@keyframes count-pop { from { transform: translate(-50%, -50%) scale(1.3); opacity: 1; } to { transform: translate(-50%, -50%) scale(1); opacity: .8; } }
 
 /* ------------------------------------------------------------------ board */
 
@@ -313,7 +428,7 @@ body.live .c-flow { animation: flow .6s linear infinite; opacity: 1; }
   position: relative;
   touch-action: none;
 }
-.pedal-reverb .knob { width: 44px; }
+.pedal-reverb .knob, .pedal-flanger .knob { width: 44px; }
 .knob svg { width: 100%; display: block; overflow: visible; }
 .k-track, .k-val { fill: none; stroke-width: 4; }
 .k-track { stroke: #24212f; }
@@ -557,6 +672,9 @@ body.live .c-flow { animation: flow .6s linear infinite; opacity: 1; }
   .brand small { display: none; }
   .slider input[type=range] { width: 70px; }
   .meter { width: 60px; }
+  /* The chain gets its own full-width row, so its chips can't run under the buttons. */
+  .chainbar { justify-content: space-between; }
+  #chain { order: 3; flex-basis: 100%; }
 }
 
 /* Hover tips: appear beside a control after a steady hover; never take the mouse */
@@ -579,3 +697,125 @@ body.live .c-flow { animation: flow .6s linear infinite; opacity: 1; }
 }
 .tip[hidden] { display: none; }
 @keyframes tip-in { from { opacity: 0; transform: translateY(3px); } }
+
+/* ------------------------------------------------------------------ accents
+ * A light layer of colour over the base look: a third neon (violet) for gradient edges, a
+ * chromatic shimmer on the brand, a deeper board, brighter hover and focus states. Readouts,
+ * meters and LEDs keep their own colours, so nothing here changes what a control tells you.
+ * The only motion is a slow glow on START while audio is live, off for reduced-motion users. */
+
+:root {
+  --violet: #9d5cff;
+  --edge: linear-gradient(90deg, var(--pink), var(--violet) 50%, var(--cyan));
+  --edge-rev: linear-gradient(90deg, var(--cyan), var(--violet) 50%, var(--pink));
+}
+::selection { background: rgba(255, 46, 136, .35); color: #fff; }
+
+/* Bars: gradient neon hairlines instead of flat lines, and a little colour in the corners. */
+.topbar {
+  background:
+    radial-gradient(ellipse 35% 160% at 0% 0%, rgba(157, 92, 255, .16), transparent 70%),
+    radial-gradient(ellipse 30% 140% at 100% 0%, rgba(46, 230, 255, .08), transparent 70%),
+    linear-gradient(180deg, #110f1d, #0a0912);
+  border-bottom-color: transparent;
+  box-shadow: 0 8px 26px rgba(157, 92, 255, .08);
+}
+.topbar::after, .loopbar::after, .chainbar::before {
+  content: ''; position: absolute; left: 0; right: 0; height: 1px; pointer-events: none;
+}
+.topbar::after { bottom: -1px; background: var(--edge); box-shadow: 0 0 10px rgba(157, 92, 255, .55); }
+.loopbar {
+  background: linear-gradient(90deg, rgba(46, 230, 255, .04), transparent 30%, transparent 70%, rgba(157, 92, 255, .06)), #0a0912;
+  border-bottom-color: transparent;
+  box-shadow: none;
+}
+.loopbar::after { bottom: -1px; background: var(--edge-rev); opacity: .45; transition: opacity .2s; }
+.loopbar.recording::after { opacity: 0; }
+.chainbar {
+  position: relative;
+  background: radial-gradient(ellipse 40% 180% at 0% 100%, rgba(46, 230, 255, .07), transparent 70%), linear-gradient(0deg, #110f1d, #0a0912);
+  border-top-color: transparent;
+  box-shadow: 0 -8px 26px rgba(46, 230, 255, .05);
+}
+.chainbar::before { top: -1px; background: var(--edge-rev); opacity: .7; box-shadow: 0 0 8px rgba(46, 230, 255, .35); }
+
+/* Brand: a faint chromatic split, like a CRT slightly out of convergence. */
+.brand { text-shadow: -1px 0 rgba(255, 46, 136, .6), 1px 0 rgba(46, 230, 255, .6), 0 0 14px rgba(157, 92, 255, .45); }
+.brand b { text-shadow: 0 0 10px var(--pink), 0 0 22px rgba(157, 92, 255, .6); }
+
+/* The top bar's control groups sit on faint violet glass panels, like modules in a rack; this
+   reads the same however the bar wraps. */
+.topbar > .group {
+  padding: 4px 10px;
+  border: 1px solid rgba(157, 92, 255, .16);
+  border-radius: 9px;
+  background: linear-gradient(180deg, rgba(157, 92, 255, .06), rgba(46, 230, 255, .02));
+}
+
+/* Buttons: a faint sheen, a coloured lift on hover and a press. Selects keep their native arrow. */
+.topbar button:not(.round), .chainbar button, .loopbar button { background: linear-gradient(180deg, #19172a, #110f1c); }
+.topbar button:not(.power):hover, .chainbar button:hover, .loopbar button:hover {
+  background: linear-gradient(180deg, rgba(46, 230, 255, .13), rgba(157, 92, 255, .07)), #14121f;
+}
+.topbar button:active, .chainbar button:active, .loopbar button:active { transform: translateY(1px); }
+#playBtn { color: var(--cyan); }
+.power.on { animation: power-breathe 3.2s ease-in-out infinite; }
+@keyframes power-breathe { 50% { box-shadow: 0 0 22px rgba(46, 230, 255, .6), 0 0 8px rgba(157, 92, 255, .55); } }
+
+/* Clear keyboard focus everywhere (knobs keep their own highlighted cap). */
+button:focus-visible, select:focus-visible, input:focus-visible {
+  outline: 1px solid var(--cyan); outline-offset: 2px; box-shadow: 0 0 0 3px rgba(46, 230, 255, .18);
+}
+
+/* Sliders: a glowing bead on a track that fades from violet. */
+.slider input[type=range] { background: linear-gradient(90deg, rgba(157, 92, 255, .55), var(--line) 70%); }
+.slider input[type=range]::-webkit-slider-thumb {
+  background: radial-gradient(circle at 35% 35%, #fff 0 15%, var(--cyan) 45%, #149db0);
+  box-shadow: 0 0 8px var(--cyan), 0 0 14px rgba(157, 92, 255, .45);
+}
+.slider input[type=range]::-moz-range-thumb {
+  background: radial-gradient(circle at 35% 35%, #fff 0 15%, var(--cyan) 45%, #149db0);
+  box-shadow: 0 0 8px var(--cyan), 0 0 14px rgba(157, 92, 255, .45);
+}
+
+/* Board: a violet glow in the far corner and a soft vignette that pulls the eye to the pedals. */
+#board::before {
+  content: ''; position: absolute; inset: 0; pointer-events: none; z-index: 0;
+  background:
+    radial-gradient(ellipse 45% 40% at 88% 4%, rgba(157, 92, 255, .12), transparent 70%),
+    radial-gradient(ellipse 35% 35% at 6% 92%, rgba(46, 230, 255, .06), transparent 70%),
+    radial-gradient(ellipse 85% 80% at 50% 50%, transparent 60%, rgba(3, 2, 8, .5));
+}
+#boardWrap, #prog { scrollbar-color: #4a3a7a transparent; }
+
+/* Pedals: a little more glow under the mouse, and a second, fainter colour in the stripe. */
+.pedal.on:hover {
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, .7),
+    0 0 32px color-mix(in srgb, var(--accent) 45%, transparent),
+    inset 0 0 22px color-mix(in srgb, var(--accent) 12%, transparent),
+    0 18px 34px rgba(0, 0, 0, .6);
+}
+.pedal::before { background: linear-gradient(90deg, transparent, var(--accent) 30%, color-mix(in srgb, var(--accent) 50%, var(--violet)) 70%, transparent); }
+.chip:hover { box-shadow: 0 0 10px color-mix(in srgb, var(--accent) 45%, transparent); }
+
+/* Loop lane: chord progress fills with a cyan-to-violet glow (pink while recording). */
+.chord { background: linear-gradient(90deg, rgba(46, 230, 255, .1), rgba(157, 92, 255, .32)) 0 0 / calc(var(--p) * 100%) 100% no-repeat, #0d0c15; }
+.chord.now.rec { background: linear-gradient(90deg, rgba(255, 46, 136, .12), rgba(255, 46, 136, .34)) 0 0 / calc(var(--p) * 100%) 100% no-repeat, #0d0c15; }
+.chord:not(.now):hover { border-color: rgba(46, 230, 255, .75); }
+.countin { text-shadow: 0 0 30px var(--cyan), 0 0 90px rgba(46, 230, 255, .45), 0 0 160px rgba(157, 92, 255, .35); }
+.countin.rec { text-shadow: 0 0 30px var(--pink), 0 0 90px rgba(255, 46, 136, .45), 0 0 160px rgba(157, 92, 255, .35); }
+
+/* Menus, help, tips and toasts: gradient neon borders. */
+.menu, .chord-menu, .panel, .tip, .toast:not(.error) {
+  border: 1px solid transparent;
+  background:
+    linear-gradient(#0d0c16, #0d0c16) padding-box,
+    linear-gradient(135deg, rgba(255, 46, 136, .7), rgba(157, 92, 255, .6), rgba(46, 230, 255, .75)) border-box;
+}
+.tip { background: linear-gradient(rgba(13, 12, 22, .96), rgba(13, 12, 22, .96)) padding-box, linear-gradient(135deg, rgba(157, 92, 255, .6), rgba(46, 230, 255, .6)) border-box; }
+.panel h2 { background: var(--edge); -webkit-background-clip: text; background-clip: text; color: transparent; width: fit-content; }
+
+@media (prefers-reduced-motion: reduce) {
+  .power.on, body.live .c-flow, .loopbar.recording, .countin.beat, .pedal.flash { animation: none; }
+}

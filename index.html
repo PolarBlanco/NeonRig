@@ -3,10 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
 <title>NEON RIG</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Share+Tech+Mono&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -63,6 +61,53 @@
   </div>
 </header>
 
+<section class="loopbar" id="loopbar">
+  <div class="group">
+    <button id="metroBtn" class="toggle" title="Start / stop the metronome">METRO</button>
+    <label class="field" title="Tempo in beats per minute. Scroll over it or type. Locked while a loop is recorded: CLEAR the loop to change it.">BPM<input type="number" id="bpm" min="40" max="240" step="1"></label>
+    <button id="tapBtn" title="Tap tempo: click in time, 3 or 4 taps set the BPM">TAP</button>
+    <label class="field" title="Beats in a bar. Beat 1 gets the high click.">TIME<select id="meter">
+      <option value="2">2/4</option>
+      <option value="3">3/4</option>
+      <option value="4">4/4</option>
+      <option value="5">5/4</option>
+      <option value="6">6/4</option>
+      <option value="7">7/4</option>
+    </select></label>
+    <div class="beats" id="beats" title="The beat you are on. Beat 1 is the big one."></div>
+    <label class="field slider" title="Click volume, for the metronome and the loop. Far left = off (the count-in still clicks). Double-click resets.">CLICK<input type="range" id="clickVol" min="-40" max="0" step="1"><output id="clickVolVal"></output></label>
+  </div>
+
+  <div class="prog-wrap">
+    <span class="chain-title">LOOP</span>
+    <div id="prog"></div>
+    <button id="addChord" title="Add a chord to the end of the progression">+ CHORD</button>
+  </div>
+
+  <div class="group">
+    <button id="recBtn" class="rec" title="Counts you in, records once through the progression, then loops it">● REC</button>
+    <button id="playBtn" title="Play the loop from the top (count-in first). With nothing recorded it just runs the chords with the click. Space bar: play / stop.">▶ PLAY</button>
+    <label class="field" title="How many times the loop plays, then it stops at the end of a pass. ∞ = until you press STOP. After REC, the recording pass doesn't count. Changing it while playing applies straight away.">REPEAT<select id="repeat">
+      <option value="0">∞</option>
+      <option value="1">1×</option>
+      <option value="2">2×</option>
+      <option value="3">3×</option>
+      <option value="4">4×</option>
+      <option value="6">6×</option>
+      <option value="8">8×</option>
+      <option value="12">12×</option>
+      <option value="16">16×</option>
+    </select></label>
+    <span id="passInfo" class="readout pass" title="Which pass of the loop is playing" hidden></span>
+    <button id="clearBtn" title="Throw away the recording (the chords stay)">CLEAR</button>
+    <button id="wavBtn" title="Download one pass of the loop, in the current chord order, as a WAV file (24-bit). It starts on beat 1 and loops seamlessly in other music apps.">WAV</button>
+    <label class="field slider" title="Loop playback volume. Far left = mute. Double-click resets.">LOOP<input type="range" id="loopVol" min="-40" max="6" step="0.5"><output id="loopVolVal"></output></label>
+    <label class="field" title="Lines the recording up with the click. The browser's latency estimate is used automatically; if the loop plays back late against the click, raise this; early, lower it.">SYNC<input type="number" id="sync" min="-100" max="200" step="5"><small>ms</small></label>
+  </div>
+</section>
+<div id="chordMenu" class="chord-menu" hidden></div>
+<div id="countIn" class="countin" hidden></div>
+
 <main id="boardWrap">
   <div id="board">
     <svg id="cables" aria-hidden="true"></svg>
@@ -88,11 +133,11 @@
     <button class="close" id="helpClose" title="Close">×</button>
     <h2>PLUG IN</h2>
     <ol>
-      <li>Plug the guitar into an <b>audio interface</b> or a <b>USB guitar cable</b> (such as the Rocksmith Real Tone Cable). On a Scarlett: the <b>instrument jack</b> (input 2 on a Solo), <b>INST</b> on, and <b>Direct Monitor OFF</b>.</li>
-      <li>Press <b>START</b> and allow microphone access. <b>INPUT</b> and <b>OUTPUT</b> on <b>AUTO</b> find the guitar and play out of the same box, or out of the computer's headphones/speakers for a cable with no output (Rocksmith). Plug things in or swap them any time; AUTO follows.</li>
+      <li>Plug the guitar into an <b>audio interface</b> or a <b>USB guitar cable</b>. On an interface: the <b>instrument (Hi-Z) input</b>, <b>INST / Hi-Z</b> on if it has the switch, and <b>Direct Monitor OFF</b>.</li>
+      <li>Press <b>START</b> and allow microphone access. <b>INPUT</b> and <b>OUTPUT</b> on <b>AUTO</b> find the guitar and play out of the same box, or out of the computer's headphones/speakers for a cable with no output of its own. Plug things in or swap them any time; AUTO follows.</li>
       <li>Use <b>wired</b> headphones or speakers. Bluetooth adds too much delay to play along.</li>
-      <li><b>Into your real amp:</b> load <b>Real Amp: Chorus + Reverb</b> (CAB SIM off), take the Scarlett's <b>LINE OUT L</b> to the amp's input or FX return with a mono cable, Direct Monitor <b>OFF</b>, and start with the output low.</li>
-      <li>Keep the input out of the red: on a Scarlett, its gain ring should glow <b>green</b> when you dig in. Fine-tune with <b>GAIN</b> here.</li>
+      <li><b>Into your real amp:</b> load <b>Real Amp: Chorus + Reverb</b> (CAB SIM off), take the interface's <b>LINE OUT L</b> (or 1) to the amp's input or FX return with a mono cable, Direct Monitor <b>OFF</b>, and start with the output low.</li>
+      <li>Keep the input out of the red: the interface's input light should stay <b>green</b> when you dig in. Fine-tune with <b>GAIN</b> here.</li>
       <li>Watch the little <b>1 / 2</b> meters. Choose the channel your guitar lights up (AUTO does this for you).</li>
     </ol>
     <h2>KILL THE NOISE</h2>
@@ -110,8 +155,16 @@
       <li><b>ARRANGE</b> lines everything up in chain order. <b>+ ADD PEDAL</b> adds more (doubles are fine).</li>
       <li>The board saves itself. Use <b>SAVE</b> to keep named presets.</li>
     </ul>
+    <h2>LOOP</h2>
+    <ul>
+      <li><b>METRO</b> runs the click at <b>BPM</b> (or click <b>TAP</b> in time). The <b>space bar</b> plays and stops the loop. Build a progression with <b>+ CHORD</b>; click a chord to change, duplicate or delete it, and drag to reorder.</li>
+      <li><b>REC</b> counts you in, records one pass of the progression as the chords light up, then loops it for you to play over.</li>
+      <li><b>REPEAT</b> plays the loop a set number of times and then stops at the end of a pass (∞ = until STOP).</li>
+      <li><b>WAV</b> downloads one pass of the loop as a file that loops seamlessly in other music apps.</li>
+      <li>Chords keep their audio when you reorder or duplicate them. The loop plays late against the click? Raise <b>SYNC</b>.</li>
+    </ul>
     <h2>LATENCY</h2>
-    <p>Browsers add some delay. Use Chrome or Edge, close other audio apps, and set the Scarlett to 48 kHz in your system sound settings. The readout in the top bar is the browser's own estimate.</p>
+    <p>Browsers add some delay. Use Chrome or Edge, close other audio apps, and set your interface to 48 kHz in your system sound settings. The readout in the top bar is the browser's own estimate.</p>
   </div>
 </div>
 

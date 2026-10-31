@@ -7,8 +7,10 @@
  *
  * The models are behavioural approximations written for this app, not circuit-exact
  * clones: Cry Baby style wah, Fuzz Face style fuzz, TS-808 style overdrive, Uni-Vibe
- * style vibe, CE-2W style chorus/vibrato, RV-6 style reverb, a three-voice amp head, plus the input conditioner (hum filter
- * and noise gate) that sits in front of them.
+ * style vibe, Phase 90 style phaser, BF-2 style flanger, CE-2W style chorus/vibrato, TR-2 style tremolo,
+ * Echoplex style tape echo, RV-6 style reverb,
+ * a three-voice amp head, plus the input conditioner (hum filter
+ * and noise gate) that sits in front of them, and the looper's recorder.
  */
 function NEON_RIG_DSP() {
   'use strict';
@@ -314,6 +316,223 @@ function NEON_RIG_DSP() {
         const m = this.mix.next() * f;
         oL[s] = dryL + (yL - dryL) * m;
         oR[s] = dryR + (yR - dryR) * m;
+      }
+    }
+  }
+
+  // ---------------------------------------------------------------- TR-2 style tremolo
+  //
+  // The volume pulses with a low-frequency oscillator, as in the Boss TR-2 or the "vibrato"
+  // channel of an old Fender amp (which is really tremolo). Peaks stay at unity: the pedal only
+  // dips the level, it never adds any. Shapes:
+  // SINE = smooth, even swell.
+  // OPTO = Fender's lamp-and-photocell tremolo: a quick dip, then a slower recovery.
+  // SQR  = choppy on/off, with the edges rounded (~15 ms) so they don't click.
+  // Changing shape crossfades between them, so it never jumps.
+
+  class Tremolo extends PedalProcessor {
+    constructor(options) {
+      super(options);
+      this.p = { rate: 0.45, depth: 0.6, wave: 'SINE' };
+      this.phase = 0;
+      this.rateHz = new Smoother(4, 60);
+      this.depth = new Smoother(0.6, 30);
+      this.w = { SINE: new Smoother(1, 20), OPTO: new Smoother(0, 20), SQR: new Smoother(0, 20) };
+      for (const k in this.p) this.setParam(k, this.p[k]);
+      this.applyInitial();
+      this.rateHz.snap();
+      this.depth.snap();
+      for (const k in this.w) this.w[k].snap();
+    }
+    setParam(k, v) {
+      if (k === 'wave') {
+        this.p.wave = v === 'OPTO' || v === 'SQR' ? v : 'SINE';
+        for (const s in this.w) this.w[s].set(s === this.p.wave ? 1 : 0);
+      } else if (k === 'rate') {
+        this.p.rate = clamp(num(v, this.p.rate), 0, 1);
+        this.rateHz.set(1.5 * Math.pow(8, this.p.rate)); // 1.5 .. 12 Hz
+      } else if (k === 'depth') {
+        this.p.depth = clamp(num(v, this.p.depth), 0, 1);
+        this.depth.set(this.p.depth);
+      }
+    }
+    render(iL, iR, oL, oR, n) {
+      const SQ = Math.tanh(5);
+      for (let s = 0; s < n; s++) {
+        this.phase += this.rateHz.next() / SR;
+        if (this.phase >= 1) this.phase -= 1;
+        const ph = this.phase;
+        // How far down each shape pulls the volume, 0 (none) .. 1 (all the way, at full DEPTH).
+        const sine = 0.5 - 0.5 * Math.cos(TAU * ph);
+        const opto = ph < 0.25 ? 0.5 - 0.5 * Math.cos(Math.PI * ph / 0.25) : 0.5 + 0.5 * Math.cos(Math.PI * (ph - 0.25) / 0.75);
+        const sqr = 0.5 - 0.5 * Math.tanh(5 * Math.cos(TAU * ph)) / SQ;
+        const dip = this.w.SINE.next() * sine + this.w.OPTO.next() * opto + this.w.SQR.next() * sqr;
+        const g = 1 - this.depth.next() * dip;
+        const m = this.mix.next();
+        oL[s] = iL[s] + (iL[s] * g - iL[s]) * m;
+        oR[s] = iR[s] + (iR[s] * g - iR[s]) * m;
+      }
+    }
+  }
+
+  // ---------------------------------------------------------------- Echoplex style tape echo
+  //
+  // A tape loop: the playback head trails the record head by TIME (60-750 ms, like the EP-3's
+  // sliding head). Each repeat goes back round through the record amp, so it returns a little
+  // darker (low-pass ~3 kHz), thinner (high-pass ~120 Hz) and softly saturated, and the tape
+  // speed wanders slightly (slow wow plus faster flutter). Moving TIME glides the head, which
+  // bends the pitch of the repeats as on the real thing instead of clicking. The saturation also
+  // keeps full REPEATS from running away. Bypass stops new sound going onto the tape, so the
+  // repeats already there die away naturally (trails), as with the reverb.
+
+  class TapeEcho extends PedalProcessor {
+    constructor(options) {
+      super(options);
+      this.line = new DelayLine(Math.ceil(SR * 0.8));
+      this.p = { time: 0.5, repeats: 0.35, mix: 0.35 };
+      this.secs = new Smoother(0.2, 250);
+      this.fb = new Smoother(0.3, 30);
+      this.wet = new Smoother(0.3, 30);
+      this.tone = new Biquad().lowpass(3000, 0.6);
+      this.thin = new OnePole().setCutoff(120);
+      this.wow = 0;
+      this.flutter = 0;
+      for (const k in this.p) this.setParam(k, this.p[k]);
+      this.applyInitial();
+      this.secs.snap();
+      this.fb.snap();
+      this.wet.snap();
+    }
+    setParam(k, v) {
+      if (!(k in this.p)) return;
+      this.p[k] = clamp(num(v, this.p[k]), 0, 1);
+      if (k === 'time') this.secs.set(0.06 * Math.pow(12.5, this.p.time)); // 60 .. 750 ms
+      else if (k === 'repeats') this.fb.set(0.95 * this.p.repeats);
+      else this.wet.set(0.9 * this.p.mix);
+    }
+    render(iL, iR, oL, oR, n) {
+      const line = this.line;
+      for (let s = 0; s < n; s++) {
+        this.wow += 0.6 / SR;
+        this.flutter += 5.5 / SR;
+        if (this.wow >= 1) this.wow -= 1;
+        if (this.flutter >= 1) this.flutter -= 1;
+        const speed = 1 + 0.0025 * Math.sin(TAU * this.wow) + 0.0008 * Math.sin(TAU * this.flutter);
+        const rep = line.readCubic(Math.max(2, this.secs.next() * SR * speed));
+        const back = this.tone.process(this.thin.hp(rep)) * this.fb.next();
+        const x = 0.5 * (iL[s] + iR[s]) * this.mix.next();
+        line.write(Math.tanh(x + back));
+        const w = rep * this.wet.next();
+        oL[s] = iL[s] + w;
+        oR[s] = iR[s] + w;
+      }
+    }
+  }
+
+  // ---------------------------------------------------------------- Phase 90 style phaser
+  //
+  // Four first-order allpass stages swept together by an LFO, mixed 50/50 with the dry signal:
+  // where the stages put the signal 180° out of phase it cancels, giving two moving notches.
+  // The sweep is exponential in frequency (as the Phase 90's JFETs are), so it sounds even.
+  // SCRIPT = the early, smooth version; BLOCK = the later one, with feedback for a sharper,
+  // more vocal sweep. Switching crossfades the feedback amount, so it never clicks.
+
+  class Phaser extends PedalProcessor {
+    constructor(options) {
+      super(options);
+      this.p = { speed: 0.35, mode: 'SCRIPT' };
+      this.s = new Float64Array(4);
+      this.last = 0;
+      this.phase = 0;
+      this.rateHz = new Smoother(0.5, 60);
+      this.fb = new Smoother(0, 30);
+      for (const k in this.p) this.setParam(k, this.p[k]);
+      this.applyInitial();
+      this.rateHz.snap();
+      this.fb.snap();
+    }
+    setParam(k, v) {
+      if (k === 'mode') {
+        this.p.mode = v === 'BLOCK' ? 'BLOCK' : 'SCRIPT';
+        this.fb.set(this.p.mode === 'BLOCK' ? 0.45 : 0);
+      } else if (k === 'speed') {
+        this.p.speed = clamp(num(v, this.p.speed), 0, 1);
+        this.rateHz.set(0.08 * Math.pow(100, this.p.speed)); // 0.08 .. 8 Hz
+      }
+    }
+    render(iL, iR, oL, oR, n) {
+      const s = this.s;
+      for (let i = 0; i < n; i++) {
+        this.phase += this.rateHz.next() / SR;
+        if (this.phase >= 1) this.phase -= 1;
+        // Allpass corner swept 180 Hz .. 2.2 kHz on a sine, exponentially.
+        const fc = 180 * Math.pow(2.2 / 0.18, 0.5 - 0.5 * Math.cos(TAU * this.phase));
+        const t = Math.tan(Math.PI * fc / SR), a = (t - 1) / (t + 1);
+        const x = 0.5 * (iL[i] + iR[i]);
+        let y = x + this.fb.next() * this.last;
+        for (let k = 0; k < 4; k++) {
+          const out = a * y + s[k];
+          s[k] = flush(y - a * out);
+          y = out;
+        }
+        this.last = y;
+        const wet = 0.5 * (x + y);
+        const m = this.mix.next();
+        oL[i] = iL[i] + (wet - iL[i]) * m;
+        oR[i] = iR[i] + (wet - iR[i]) * m;
+      }
+    }
+  }
+
+  // ---------------------------------------------------------------- BF-2 style flanger
+  //
+  // A very short delay (MANUAL sets its centre, about 0.5-6 ms) swept by a triangle LFO and mixed
+  // 50/50 with the dry signal, which puts a comb of notches through the sound and sweeps it: the
+  // "jet plane". RES feeds the delayed signal back for a sharper, ringing sweep; only the feedback
+  // is softly saturated, so even full RES can't run away while the signal itself stays clean. MANUAL glides, so turning it sweeps by hand.
+
+  class Flanger extends PedalProcessor {
+    constructor(options) {
+      super(options);
+      this.line = new DelayLine(Math.ceil(SR * 0.015));
+      this.p = { manual: 0.5, depth: 0.6, rate: 0.3, res: 0.5 };
+      this.phase = 0;
+      this.centre = new Smoother(0.002, 80);
+      this.depth = new Smoother(0.6, 40);
+      this.rateHz = new Smoother(0.3, 60);
+      this.fb = new Smoother(0.4, 30);
+      this.last = 0;
+      for (const k in this.p) this.setParam(k, this.p[k]);
+      this.applyInitial();
+      this.centre.snap();
+      this.depth.snap();
+      this.rateHz.snap();
+      this.fb.snap();
+    }
+    setParam(k, v) {
+      if (!(k in this.p)) return;
+      this.p[k] = clamp(num(v, this.p[k]), 0, 1);
+      if (k === 'manual') this.centre.set(0.0005 * Math.pow(12, this.p.manual)); // 0.5 .. 6 ms
+      else if (k === 'depth') this.depth.set(this.p.depth);
+      else if (k === 'rate') this.rateHz.set(0.05 * Math.pow(100, this.p.rate)); // 0.05 .. 5 Hz
+      else this.fb.set(0.9 * this.p.res);
+    }
+    render(iL, iR, oL, oR, n) {
+      const line = this.line;
+      for (let i = 0; i < n; i++) {
+        this.phase += this.rateHz.next() / SR;
+        if (this.phase >= 1) this.phase -= 1;
+        const tri = 4 * Math.abs(this.phase - 0.5) - 1; // -1 .. 1
+        // DEPTH sweeps up to two octaves either side of MANUAL, kept between 0.15 and 12 ms.
+        const d = clamp(this.centre.next() * Math.pow(4, this.depth.next() * tri), 0.00015, 0.012);
+        const x = 0.5 * (iL[i] + iR[i]);
+        line.write(x + Math.tanh(this.fb.next() * this.last)); // bounded feedback, clean dry path
+        const wet = line.readCubic(d * SR);
+        this.last = wet;
+        const y = 0.5 * (x + wet);
+        const m = this.mix.next();
+        oL[i] = iL[i] + (y - iL[i]) * m;
+        oR[i] = iR[i] + (y - iR[i]) * m;
       }
     }
   }
@@ -1113,13 +1332,58 @@ function NEON_RIG_DSP() {
     }
   }
 
+  // ---------------------------------------------------------------- loop recorder
+  //
+  // Captures segments of the board's output at absolute frames on the audio clock, so a take
+  // lines up with the metronome to the sample however late the page's timers run. The page
+  // arms one segment per chord; each is posted back the moment it is full, so playback of the
+  // first chords can begin before the last one has finished recording.
+  class Recorder extends AudioWorkletProcessor {
+    constructor() {
+      super();
+      this.segs = [];
+      this.session = 0;
+      this.port.onmessage = (e) => {
+        const m = e.data;
+        if (!m) return;
+        if (m.type === 'arm') {
+          this.session = m.session;
+          // The page sends the buffers along, so nothing is allocated on the audio thread.
+          this.segs = m.segs.map((s) => ({ key: s.key, start: s.start, len: s.len, ch: s.ch || [new Float32Array(s.len), new Float32Array(s.len)] }));
+        } else if (m.type === 'cancel') this.segs = [];
+      };
+    }
+    process(inputs) {
+      if (!this.segs.length) return true;
+      const inp = inputs[0] || [];
+      const f0 = currentFrame, n = inp[0] ? inp[0].length : 128;
+      for (let i = 0; i < this.segs.length; i++) {
+        const s = this.segs[i];
+        const a = Math.max(f0, s.start), b = Math.min(f0 + n, s.start + s.len);
+        if (b > a && inp[0]) {
+          for (let c = 0; c < 2; c++) s.ch[c].set((inp[c] || inp[0]).subarray(a - f0, b - f0), a - s.start);
+        }
+        if (f0 + n >= s.start + s.len) {
+          this.port.postMessage({ type: 'take', session: this.session, key: s.key, ch: s.ch }, s.ch.map((c) => c.buffer));
+          this.segs.splice(i--, 1);
+        }
+      }
+      return true;
+    }
+  }
+
   registerProcessor('neon-input', InputConditioner);
+  registerProcessor('neon-rec', Recorder);
   registerProcessor('neon-fuzz', Fuzz);
   registerProcessor('neon-vibe', Vibe);
   registerProcessor('neon-amp', Amp);
   registerProcessor('neon-wah', Wah);
   registerProcessor('neon-ts', TubeScreamer);
   registerProcessor('neon-chorus', Chorus);
+  registerProcessor('neon-trem', Tremolo);
+  registerProcessor('neon-echo', TapeEcho);
+  registerProcessor('neon-phaser', Phaser);
+  registerProcessor('neon-flanger', Flanger);
   registerProcessor('neon-reverb', Reverb);
-  return { InputConditioner, Fuzz, Vibe, FUZZ_VOICES, Amp, Wah, TubeScreamer, Chorus, Reverb, RV_MODES, fmvCoeffs, fmvMag, STACKS, AMP_VOICES };
+  return { InputConditioner, Recorder, Tremolo, TapeEcho, Phaser, Flanger, Fuzz, Vibe, FUZZ_VOICES, Amp, Wah, TubeScreamer, Chorus, Reverb, RV_MODES, fmvCoeffs, fmvMag, STACKS, AMP_VOICES };
 }

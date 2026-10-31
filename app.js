@@ -63,6 +63,24 @@
         ['CHO', 'CHORUS', 'Dry plus swirled signal: the classic throb.'],
         ['VIB', 'VIBRATO', 'Only the swirled signal, so the pitch wobbles.']] },
     },
+    phaser: {
+      title: 'QUASAR PHASE', sub: 'PHASE 90 STYLE PHASER', proc: 'neon-phaser',
+      accent: '#ff8c1a', w: 176, h: 300, footswitch: 'round',
+      knobs: [
+        { k: 'speed', label: 'SPEED', def: 0.35, tip: 'How fast it sweeps. Low: slow, watery swirl. High: fast, bubbly warble.' }],
+      modes: { k: 'mode', kind: 'switch', def: 'SCRIPT', options: [
+        ['SCRIPT', 'SCRIPT', 'The early, smooth version: subtle and warm. Great in front of a crunchy amp.'],
+        ['BLOCK', 'BLOCK', 'The later version, with feedback: a sharper, more vocal sweep.']] },
+    },
+    flanger: {
+      title: 'WARP FLANGER', sub: 'BF-2 STYLE FLANGER', proc: 'neon-flanger',
+      accent: '#a0b4ff', w: 200, h: 300, footswitch: 'treadle',
+      knobs: [
+        { k: 'manual', label: 'MANUAL', def: 0.5, tip: 'Where the sweep sits, darker to brighter. With DEPTH down you can sweep it by hand.' },
+        { k: 'depth', label: 'DEPTH', def: 0.6, tip: 'How wide the sweep goes.' },
+        { k: 'rate', label: 'RATE', def: 0.3, tip: 'How fast it sweeps. Slow is the classic jet plane.' },
+        { k: 'res', label: 'RES', def: 0.5, tip: 'Resonance: more makes the sweep sharper and more metallic.' }],
+    },
     chorus: {
       title: 'CHROMA CHORUS', sub: 'CE-2W STYLE CHORUS', proc: 'neon-chorus',
       accent: '#2ee6ff', w: 176, h: 300, footswitch: 'treadle',
@@ -73,6 +91,25 @@
         ['S', 'STD', 'Standard CE-2 chorus.'],
         ['C', 'CE-1 CHO', 'CE-1 chorus: wider, in stereo.'],
         ['V', 'CE-1 VIB', 'CE-1 vibrato: pitch wobble, no dry signal.']] },
+    },
+    trem: {
+      title: 'STROBE TREM', sub: 'TR-2 STYLE TREMOLO', proc: 'neon-trem',
+      accent: '#e4ff3d', w: 176, h: 300, footswitch: 'round',
+      knobs: [
+        { k: 'rate', label: 'RATE', def: 0.45, tip: 'How fast the volume pulses.' },
+        { k: 'depth', label: 'DEPTH', def: 0.6, tip: 'How far the volume dips. Full = all the way down on each pulse.' }],
+      modes: { k: 'wave', kind: 'switch', def: 'SINE', options: [
+        ['SINE', 'SINE', 'Smooth, even swell.'],
+        ['OPTO', 'OPTO', 'Old Fender amp tremolo: a quick dip and a slower swell back. The western twang.'],
+        ['SQR', 'CHOP', 'Hard on/off pulses, like a helicopter.']] },
+    },
+    echo: {
+      title: 'GHOST ECHO', sub: 'ECHOPLEX STYLE TAPE ECHO', proc: 'neon-echo',
+      accent: '#ff7a9e', w: 176, h: 300, footswitch: 'treadle',
+      knobs: [
+        { k: 'time', label: 'TIME', def: 0.5, tip: 'Delay between repeats, 60 ms (slapback) to 750 ms. Turning it while it repeats bends the pitch, like moving the tape head.' },
+        { k: 'repeats', label: 'REPEATS', def: 0.35, tip: 'How many times it repeats. Each repeat comes back darker, like tape. Full up runs away into a wash.' },
+        { k: 'mix', label: 'MIX', def: 0.35, tip: 'How loud the repeats are. The dry guitar stays at full level.' }],
     },
     amp: {
       title: 'NEON STACK', sub: 'PLEXI · HIWATT · FENDER STYLE AMP', proc: 'neon-amp',
@@ -99,17 +136,26 @@
     },
   };
 
+  // Saved boards and presets come back from storage, which anything on the same origin can write
+  // (every file:// page shares one in Chrome), so only known pedal types and in-range values get in.
+  const isPedal = (type) => typeof type === 'string' && Object.prototype.hasOwnProperty.call(PEDALS, type);
+  const safeId = (id) => (typeof id === 'string' && /^[a-z0-9]{1,16}$/i.test(id) ? id : uid());
   function makePedal(type, over = {}) {
     const d = PEDALS[type];
     const params = {};
-    for (const k of d.knobs) params[k.k] = k.def;
-    if (d.modes) params[d.modes.k] = d.modes.def;
+    const given = over.params || {};
+    for (const k of d.knobs) params[k.k] = Number.isFinite(given[k.k]) ? clamp(given[k.k], 0, 1) : k.def;
+    if (d.modes) {
+      const v = given[d.modes.k], m = d.modes;
+      const ok = m.kind === 'rotary' ? Number.isInteger(v) && v >= 0 && v < m.options.length : m.options.some(([o]) => o === v);
+      params[m.k] = ok ? v : m.def;
+    }
     return {
-      id: over.id || uid(), type,
+      id: safeId(over.id), type,
       x: Number.isFinite(over.x) ? over.x : 0,
       y: Number.isFinite(over.y) ? over.y : 0,
       on: over.on !== false,
-      params: { ...params, ...(over.params || {}) },
+      params,
     };
   }
 
@@ -184,7 +230,37 @@
       ['ts', true, { drive: 0.8, tone: 0.6, level: 0.55 }],
       ['chorus', true, { rate: 0.2, depth: 0.35, mode: 'C' }],
       ['reverb', true, { level: 0.35, tone: 0.55, time: 0.5, mode: 5 }]] },
-    // Your board > Scarlett > NEON RIG > Scarlett line out (left) > the amp. Chorus and reverb only.
+    // Glassy Texas blues: a clean, bright Fender with the SCREAMER as a clean boost (level up,
+    // drive down) for edge and sparkle, and a little spring. Best on the middle or neck+middle pickups.
+    { name: 'Texas Glass Blues', pedals: [
+      ['ts', true, { drive: 0.12, tone: 0.68, level: 0.62 }],
+      ['amp', true, { voice: 'FENDER', gain: 0.35, bass: 0.4, mid: 0.4, treble: 0.72, volume: 0.5 }],
+      ['reverb', true, { level: 0.28, tone: 0.6, time: 0.4, mode: 3 }]] },
+    // Spaghetti western: twangy clean Fender, Fender-style opto tremolo, a short tape echo and a
+    // deep, drippy spring. Bridge pickup, play low on the neck.
+    { name: 'Spaghetti Western', pedals: [
+      ['amp', true, { voice: 'FENDER', gain: 0.25, bass: 0.45, mid: 0.4, treble: 0.68, volume: 0.72 }],
+      ['trem', true, { wave: 'OPTO', rate: 0.42, depth: 0.65 }],
+      ['echo', true, { time: 0.55, repeats: 0.3, mix: 0.3 }],
+      ['reverb', true, { level: 0.45, tone: 0.55, time: 0.55, mode: 3 }]] },
+    // Tape-echo lead, a starting point for GHOST ECHO: a pushed Plexi with ~290 ms repeats that
+    // sit behind the notes, and only a touch of reverb so the echoes stay clear.
+    { name: 'Echoplex Lead (tape echo)', pedals: [
+      ['ts', true, { drive: 0.55, tone: 0.55, level: 0.6 }],
+      ['amp', true, { voice: 'PLEXI', gain: 0.6, bass: 0.55, mid: 0.65, treble: 0.55, volume: 0.5 }],
+      ['echo', true, { time: 0.62, repeats: 0.35, mix: 0.32 }],
+      ['reverb', true, { level: 0.15, tone: 0.5, time: 0.35, mode: 2 }]] },
+    // Phaser template: a slow SCRIPT phaser into a cranked Plexi, the late-70s hard-rock swirl.
+    { name: 'Phase Crunch (QUASAR PHASE)', pedals: [
+      ['phaser', true, { speed: 0.3, mode: 'SCRIPT' }],
+      ['amp', true, { voice: 'PLEXI', gain: 0.72, bass: 0.55, mid: 0.65, treble: 0.6, volume: 0.5 }],
+      ['reverb', true, { level: 0.2, tone: 0.5, time: 0.4, mode: 2 }]] },
+    // Flanger template: a slow, resonant jet sweep on a clean-ish Fender, with a little plate.
+    { name: 'Jet Flanger (WARP FLANGER)', pedals: [
+      ['flanger', true, { manual: 0.45, depth: 0.7, rate: 0.22, res: 0.65 }],
+      ['amp', true, { voice: 'FENDER', gain: 0.4, bass: 0.5, mid: 0.5, treble: 0.6, volume: 0.55 }],
+      ['reverb', true, { level: 0.22, tone: 0.5, time: 0.4, mode: 2 }]] },
+    // Your board > interface > NEON RIG > interface line out (left) > the amp. Chorus and reverb only.
     { name: 'Real Amp: Chorus + Reverb', cab: false, pedals: [
       ['chorus', true, { rate: 0.3, depth: 0.45, mode: 'S' }],
       ['reverb', true, { level: 0.25, tone: 0.5, time: 0.45, mode: 2 }]] },
@@ -205,19 +281,67 @@
     inGain: 0, master: -6, cab: true, channel: 'auto', inputId: '', outputId: '',
     hum: guessMains(), gate: -70, latency: 'interactive', devices: 2, // inputId/outputId '' = AUTO
   };
+  // Metronome + looper settings. A chord is a label plus a length in beats; the audio recorded
+  // over it lives in memory only (see `take`), keyed by the chord's id.
+  const ROOTS = ['C', 'C#', 'D', 'Eb', 'E', 'F', 'F#', 'G', 'Ab', 'A', 'Bb', 'B'];
+  // Chord types, in the editor's three rows: triads, sixths and sevenths, extended.
+  const QUAL_ROWS = [
+    ['TRIAD', ['', 'm', '5', 'sus2', 'sus4', 'aug', 'dim']],
+    ['6 / 7', ['6', 'm6', '7', 'm7', 'maj7', '7sus4', 'dim7', 'm7b5']],
+    ['EXT', ['9', 'm9', 'maj9', 'add9', '11', '13', '7#9']],
+  ];
+  const QUALS = QUAL_ROWS.flatMap(([, qs]) => qs);
+  const LENS = [1, 2, 3, 4, 6, 8];
+  const MAX_CHORDS = 32;
+  const chord = (root, q = '', len = 4) => ({ id: uid(), root, q, len });
+  const REPEATS = [0, 1, 2, 3, 4, 6, 8, 12, 16]; // 0 = until STOP
+  const DEFAULT_LOOP = { bpm: 90, meter: 4, clickVol: -12, loopVol: 0, sync: 0, repeat: 0 };
+  function loadLoop(saved) {
+    const lp = { ...DEFAULT_LOOP, ...(saved && typeof saved === 'object' ? saved : {}) };
+    const num = (v, lo, hi, def) => (Number.isFinite(v) ? clamp(v, lo, hi) : def);
+    if (!REPEATS.includes(lp.repeat)) lp.repeat = 0;
+    lp.bpm = Math.round(num(lp.bpm, 40, 240, DEFAULT_LOOP.bpm));
+    lp.meter = [2, 3, 4, 5, 6, 7].includes(lp.meter) ? lp.meter : 4;
+    lp.clickVol = num(lp.clickVol, -40, 0, DEFAULT_LOOP.clickVol);
+    lp.loopVol = num(lp.loopVol, -40, 6, DEFAULT_LOOP.loopVol);
+    lp.sync = Math.round(num(lp.sync, -100, 200, 0));
+    const ok = (c) => c && ROOTS.includes(c.root) && QUALS.includes(c.q) && LENS.includes(c.len);
+    const seen = new Set();
+    lp.chords = (Array.isArray(lp.chords) ? lp.chords : []).filter(ok).slice(0, MAX_CHORDS).map((c) => {
+      let id = safeId(c.id);
+      while (seen.has(id)) id = uid();
+      seen.add(id);
+      return { id, root: c.root, q: c.q, len: c.len };
+    });
+    if (!saved) lp.chords = [chord('G'), chord('D'), chord('E', 'm'), chord('C')];
+    return lp;
+  }
+
   let needsArrange = false;
   const board = loadBoard();
 
   function loadBoard() {
     const saved = store.get(BOARD_KEY);
     if (saved && Array.isArray(saved.pedals)) {
-      const io = { ...DEFAULT_IO, ...(saved.io || {}) };
+      const io = { ...DEFAULT_IO, ...(saved.io && typeof saved.io === 'object' ? saved.io : {}) };
       // Older saves pinned whatever device was in use; move them to AUTO so plug-and-go works.
       if (!saved.io || saved.io.devices !== 2) Object.assign(io, { inputId: '', outputId: '', devices: 2 });
-      return { pedals: saved.pedals.filter((p) => p && PEDALS[p.type]).map((p) => makePedal(p.type, p)), io };
+      for (const k of ['inGain', 'master', 'gate']) if (!Number.isFinite(io[k])) io[k] = DEFAULT_IO[k];
+      io.inGain = clamp(io.inGain, -12, 24);
+      io.master = clamp(io.master, -40, 6);
+      io.gate = clamp(io.gate, -90, -30);
+      if (![0, 50, 60].includes(io.hum)) io.hum = DEFAULT_IO.hum;
+      if (!['interactive', '0.02', '0.04'].includes(io.latency)) io.latency = 'interactive';
+      if (!['auto', '1', '2', 'mix'].includes(io.channel)) io.channel = 'auto';
+      for (const k of ['inputId', 'outputId']) if (typeof io[k] !== 'string') io[k] = '';
+      io.cab = io.cab !== false;
+      const seen = new Set();
+      const pedals = saved.pedals.filter((p) => p && isPedal(p.type)).map((p) => makePedal(p.type, p));
+      for (const p of pedals) { while (seen.has(p.id)) p.id = uid(); seen.add(p.id); }
+      return { pedals, io, loop: loadLoop(saved.loop) };
     }
     needsArrange = true;
-    return { pedals: fromSpec(FACTORY[0].pedals), io: { ...DEFAULT_IO } };
+    return { pedals: fromSpec(FACTORY[0].pedals), io: { ...DEFAULT_IO }, loop: loadLoop() };
   }
 
   let saveTimer = 0;
@@ -242,6 +366,7 @@
     },
 
     stop() {
+      stopTransport();
       this.closeInput();
       if (this.ctx) this.ctx.suspend();
       this.running = false;
@@ -317,8 +442,23 @@
       this.chainOut.connect(this.cabDry);
 
       this.master = new GainNode(ctx);
-      this.cabDry.connect(this.master);
-      this.cabWet.connect(this.master);
+      // The looper records the board here, ahead of MASTER, the click and its own playback.
+      this.post = new GainNode(ctx);
+      this.cabDry.connect(this.post);
+      this.cabWet.connect(this.post);
+      this.post.connect(this.master);
+      this.rec = new AudioWorkletNode(ctx, 'neon-rec', {
+        numberOfInputs: 1, numberOfOutputs: 1, outputChannelCount: [1], channelCount: 2, channelCountMode: 'explicit',
+      });
+      this.rec.port.onmessage = (e) => onTake(e.data);
+      const recSink = new GainNode(ctx, { gain: 0 }); // keeps the recorder pulled by the graph
+      this.post.connect(this.rec);
+      this.rec.connect(recSink);
+      recSink.connect(ctx.destination);
+      this.loopOut = new GainNode(ctx);
+      this.clickOut = new GainNode(ctx);
+      this.loopOut.connect(this.master);
+      this.clickOut.connect(this.master);
       // Gentle ceiling just below full scale so overs fold softly rather than crack.
       const curve = new Float32Array(2049);
       for (let i = 0; i < curve.length; i++) {
@@ -439,6 +579,9 @@
       this.master.gain.setTargetAtTime(io.master <= -40 ? 0 : dbToGain(io.master), t, 0.01);
       this.cabWet.gain.setTargetAtTime(io.cab ? 1 : 0, t, 0.01);
       this.cabDry.gain.setTargetAtTime(io.cab ? 0 : 1, t, 0.01);
+      const lp = board.loop;
+      this.loopOut.gain.setTargetAtTime(lp.loopVol <= -40 ? 0 : dbToGain(lp.loopVol), t, 0.01);
+      this.clickOut.gain.setTargetAtTime(lp.clickVol <= -40 ? 0 : dbToGain(lp.clickVol), t, 0.01);
       this.cond.port.postMessage({ type: 'param', name: 'hum', value: io.hum });
       this.cond.port.postMessage({ type: 'param', name: 'gate', value: io.gate });
       this.applyChannel();
@@ -546,7 +689,7 @@
       : 'Windows: Settings > Privacy & security > Microphone, and switch on "Let desktop apps access your microphone".';
     if (name === 'NotAllowedError' && /system/i.test(msg)) return `Your computer is blocking audio input. ${osFix} Then restart the browser and press START.`;
     if (name === 'NotAllowedError') return `Audio input was blocked. Click the icon at the left of the address bar and allow the microphone. If it's already allowed, check the system setting. ${osFix}`;
-    if (name === 'NotReadableError' || name === 'AbortError') return 'The guitar input is busy or unavailable. Close other audio apps (Ableton, Rocksmith), replug the interface or cable, and in Windows Sound settings untick "Allow applications to take exclusive control" for it.';
+    if (name === 'NotReadableError' || name === 'AbortError') return 'The guitar input is busy or unavailable. Close other audio apps (recording software, or a game that came with your guitar cable), replug the interface or cable, and in Windows Sound settings untick "Allow applications to take exclusive control" for it.';
     if (name === 'NotFoundError' || name === 'OverconstrainedError') return 'No audio input was found. Check the interface or guitar cable is plugged in and shows up in your system sound settings.';
     return `Audio could not start: ${msg}`;
   }
@@ -887,21 +1030,22 @@
       chip.style.setProperty('--accent', d.accent);
       chip.title = 'Drag to reorder, click to find on the board';
       chip.innerHTML = `<span class="chip-n">${i + 1}</span>${d.title}`;
-      bindChipDrag(chip, p);
+      bindChipDrag(chip, board.pedals, p, () => focusPedal(p.id), chainChanged);
       chainEl.appendChild(chip);
     });
     chainEl.insertAdjacentHTML('beforeend', '<span class="chain-arrow">▸</span><span class="chain-end">AMP</span>');
   }
 
-  function bindChipDrag(chip, p) {
+  // Drag a chip sideways to move `item` within `list` (the pedal chain, or the loop's chords).
+  function bindChipDrag(chip, list, item, onClick, onMoved) {
     chip.addEventListener('pointerdown', (e) => {
-      if (e.button !== 0) return;
+      if (e.button !== 0 || chip.closest('.locked')) return;
       e.preventDefault();
       chip.setPointerCapture(e.pointerId);
       const x0 = e.clientX;
       const r0 = chip.getBoundingClientRect();
       const centre0 = r0.left + r0.width / 2;
-      const others = [...chainEl.querySelectorAll('.chip')].filter((c) => c !== chip)
+      const others = [...chip.parentElement.querySelectorAll(':scope > [data-id]')].filter((c) => c !== chip)
         .map((c) => { const r = c.getBoundingClientRect(); return r.left + r.width / 2; });
       let moved = false;
       const move = (ev) => {
@@ -915,13 +1059,13 @@
         chip.removeEventListener('pointercancel', up);
         chip.classList.remove('dragging');
         chip.style.transform = '';
-        if (!moved) { focusPedal(p.id); return; }
+        if (!moved) { onClick(); return; }
         const to = others.filter((c) => c < centre0 + ev.clientX - x0).length;
-        const from = board.pedals.indexOf(p);
+        const from = list.indexOf(item);
         if (to === from) return;
-        board.pedals.splice(from, 1);
-        board.pedals.splice(to, 0, p);
-        chainChanged();
+        list.splice(from, 1);
+        list.splice(to, 0, item);
+        onMoved();
       };
       chip.addEventListener('pointermove', move);
       chip.addEventListener('pointerup', up);
@@ -952,14 +1096,19 @@
     save();
   }
   // Where a new pedal goes in the chain (-1 = the end). Drag its chip to move it after.
-  // Wah first; fuzz straight after the wah (as on Hendrix's board); the vibe in front of
-  // the amp; the amp after the drives and before modulation and reverb, like an effects loop.
+  // Wah first; fuzz straight after the wah (as on Hendrix's board); the vibe, phaser and flanger
+  // in front of the amp (as on Van Halen's board); the amp after the drives and before modulation
+  // and reverb, like an effects loop. After the amp: chorus, then tremolo, then echo, reverb last.
   function insertAt(type) {
     const first = (pred) => { const i = board.pedals.findIndex(pred); return i < 0 ? board.pedals.length : i; };
+    const before = (...types) => first((q) => types.includes(q.type));
     if (type === 'wah') return 0;
     if (type === 'fuzz') return first((q) => q.type !== 'wah');
-    if (type === 'vibe') return first((q) => q.type === 'amp' || q.type === 'chorus' || q.type === 'reverb');
-    if (type === 'amp') return first((q) => q.type === 'chorus' || q.type === 'reverb');
+    if (type === 'vibe' || type === 'phaser' || type === 'flanger') return before('amp', 'chorus', 'trem', 'echo', 'reverb');
+    if (type === 'amp') return before('chorus', 'trem', 'echo', 'reverb');
+    if (type === 'chorus') return before('trem', 'echo', 'reverb');
+    if (type === 'trem') return before('echo', 'reverb');
+    if (type === 'echo') return before('reverb');
     return -1;
   }
   function addPedal(type) {
@@ -995,7 +1144,10 @@
   // ------------------------------------------------------------------ presets
 
   const presetSel = $('#presetSelect');
-  const userPresets = () => store.get(PRESET_KEY) || [];
+  const userPresets = () => {
+    const v = store.get(PRESET_KEY);
+    return Array.isArray(v) ? v.filter((u) => u && typeof u.name === 'string' && Array.isArray(u.pedals)) : [];
+  };
   function renderPresets(value = '') {
     const mine = userPresets();
     presetSel.innerHTML = '<option value="">PRESETS…</option>' +
@@ -1020,13 +1172,13 @@
     } else {
       const u = userPresets()[i];
       if (!u) return;
-      board.pedals = u.pedals.filter((p) => PEDALS[p.type]).map((p) => makePedal(p.type, { ...p, id: uid() }));
+      board.pedals = u.pedals.filter((p) => p && isPedal(p.type)).map((p) => makePedal(p.type, { ...p, id: uid() }));
     }
     chainChanged();
   });
   $('#presetSave').addEventListener('click', () => {
     const current = presetSel.value[0] === 'u' ? userPresets()[Number(presetSel.value.slice(1))] : null;
-    const name = (prompt('Preset name:', current ? current.name : '') || '').trim();
+    const name = (prompt('Preset name:', current ? current.name : '') || '').trim().slice(0, 60);
     if (!name) return;
     const mine = userPresets();
     const entry = { name, pedals: board.pedals.map(({ type, x, y, on, params }) => ({ type, x, y, on, params })) };
@@ -1100,20 +1252,20 @@
     if (A.ctx && A.inChannels < 2 && chSel.value !== '1' && chSel.value !== 'auto') toast('This input only has one channel, so IN 1 is used.');
   });
 
-  function bindSlider(id, key, fmt) {
+  function bindSlider(id, key, fmt, obj = board.io, defaults = DEFAULT_IO) {
     const input = $(`#${id}`), out = $(`#${id}Val`);
-    const show = () => { out.textContent = fmt(board.io[key]); };
-    input.value = board.io[key];
+    const show = () => { out.textContent = fmt(obj[key]); };
+    input.value = obj[key];
     show();
     input.addEventListener('input', () => {
-      board.io[key] = Number(input.value);
+      obj[key] = Number(input.value);
       show();
       A.applyIO();
       save();
     });
     input.addEventListener('dblclick', () => {
-      board.io[key] = DEFAULT_IO[key];
-      input.value = board.io[key];
+      obj[key] = defaults[key];
+      input.value = obj[key];
       show();
       A.applyIO();
       save();
@@ -1246,6 +1398,445 @@
   document.documentElement.addEventListener('pointerleave', hideTip);
   for (const ev of ['pointerdown', 'wheel', 'keydown', 'scroll']) document.addEventListener(ev, hideTip, { capture: true, passive: true });
 
+  // ------------------------------------------------------------------ metronome + looper
+  //
+  // One transport drives both. Every click and loop slice sits on a beat grid on the audio
+  // clock and is scheduled a little ahead, so nothing drifts with the page's timers. Beat 0 is
+  // the first beat of the progression; the count-in is the bar before it. A take is recorded as
+  // one slice per chord, so chords can be reordered or duplicated afterwards and their audio
+  // moves with them. Slices start LEAD early, so a strum that anticipates the change stays with
+  // its chord, and overlap by XF with a linear crossfade: seamless when played in recorded order.
+
+  const LOOK = 0.15, LEAD = 0.03, XF = 0.008;
+  const lp = board.loop;
+  let take = new Map(), prevTake = null; // chord id -> AudioBuffer (memory only)
+  let S = null, session = 0, shownEv = null, finishing = null;
+  const MAX_REC_S = 180; // ~70 MB of audio at 48 kHz stereo
+  const progEl = $('#prog'), beatsEl = $('#beats'), countEl = $('#countIn'), chordMenu = $('#chordMenu');
+  const bpmIn = $('#bpm'), meterSel = $('#meter'), metroBtn = $('#metroBtn');
+  const recBtn = $('#recBtn'), playBtn = $('#playBtn'), clearBtn = $('#clearBtn'), syncIn = $('#sync');
+  const repeatSel = $('#repeat'), passInfo = $('#passInfo'), tapBtn = $('#tapBtn'), wavBtn = $('#wavBtn');
+  const chordName = (c) => c.root + c.q;
+  const hasTake = () => lp.chords.some((c) => take.has(c.id));
+  const progAt = (start) => {
+    let b = start;
+    const slots = lp.chords.map((c) => { const s = { id: c.id, beat: b, len: c.len }; b += c.len; return s; });
+    return { end: b, slots };
+  };
+
+  async function ensureAudio() {
+    if (!A.ctx) await A.init();
+    await A.ctx.resume();
+  }
+
+  function startTransport(mode) { // 'metro' | 'play' | 'rec'
+    stopTransport();
+    const ctx = A.ctx, spb = 60 / lp.bpm, looping = mode !== 'metro';
+    const bus = (dest, gain = 1) => { const g = new GainNode(ctx, { gain }); g.connect(dest); return g; };
+    const s = S = {
+      mode, spb, meter: lp.meter, id: ++session, events: [], pending: [], got: 0, endAt: 0,
+      pass: mode === 'play' ? 1 : 0, // pass 0 is the recording
+      t0: ctx.currentTime + 0.1 + (looping ? lp.meter * spb : 0), next: looping ? -lp.meter : 0,
+      cyc: looping ? progAt(0) : null,
+      click: bus(A.clickOut), count: bus(A.master, dbToGain(-12)), loop: bus(A.loopOut),
+    };
+    if (mode === 'rec') {
+      // Capture what the player hears the click against: shifted by the round trip out and back in.
+      // The buffers are made here and handed over, so the audio thread never allocates them.
+      const sr = ctx.sampleRate, lat = A.latencyMs() / 1000 + lp.sync / 1000;
+      s.recIds = new Set(s.cyc.slots.map((sl) => sl.id));
+      prevTake = take;
+      take = new Map();
+      const segs = s.cyc.slots.map((sl) => {
+        const len = Math.round((sl.len * spb + XF) * sr);
+        return { key: sl.id, start: Math.round((s.t0 + sl.beat * spb - LEAD + lat) * sr), len, ch: [new Float32Array(len), new Float32Array(len)] };
+      });
+      A.rec.port.postMessage({ type: 'arm', session: s.id, segs }, segs.flatMap((g) => g.ch.map((c) => c.buffer)));
+    }
+    s.timer = setInterval(schedule, 25);
+    schedule();
+    renderProg();
+  }
+
+  function stopTransport() {
+    const s = S;
+    if (!s) return;
+    S = null;
+    clearInterval(s.timer);
+    if (s.recIds && s.got < s.recIds.size) {
+      if (s.mode === 'play') {
+        finishing = s; // stopped just after the pass: the last slices are still on their way, keep them
+      } else {
+        A.rec.port.postMessage({ type: 'cancel' });
+        take = prevTake;
+        toast('Recording stopped before the end of the progression. The previous loop is kept.');
+      }
+    }
+    const t = A.ctx.currentTime;
+    for (const g of [s.click, s.count, s.loop]) { g.gain.setTargetAtTime(0, t, 0.01); setTimeout(() => g.disconnect(), 150); }
+    shownEv = null;
+    showBeat(null);
+    renderProg();
+  }
+
+  function schedule() {
+    const s = S;
+    if (!s) return;
+    if (s.endAt) { if (A.ctx.currentTime >= s.endAt) stopTransport(); return; } // REPEAT reached: let the last pass finish
+    const horizon = A.ctx.currentTime + (document.hidden ? 1.5 : LOOK); // hidden tabs run timers late
+    while (s.t0 + s.next * s.spb < horizon) {
+      const b = s.next++, t = s.t0 + b * s.spb;
+      const ev = { t, inBar: ((b % s.meter) + s.meter) % s.meter, count: b < 0 ? -b : 0, id: null, beat: 0, len: 0 };
+      if (s.cyc && b >= s.cyc.end) { // round again, picking up any edits made meanwhile
+        if (s.mode === 'rec') { s.mode = 'play'; renderTransport(); }
+        if (lp.repeat && s.pass >= lp.repeat) { s.endAt = t + XF + 0.05; return; }
+        s.pass++;
+        s.cyc = progAt(b);
+        if (!s.cyc.slots.length) { stopTransport(); return; }
+      }
+      if (s.cyc && b >= 0) {
+        const sl = s.cyc.slots.find((x) => b < x.beat + x.len);
+        Object.assign(ev, { id: sl.id, beat: b - sl.beat, len: sl.len });
+        if (b === sl.beat && s.mode === 'play') playSlot(s, sl, t - LEAD);
+      }
+      ev.rec = s.mode === 'rec';
+      ev.pass = s.pass;
+      click(s, t, ev.inBar === 0, b < 0);
+      s.events.push(ev);
+    }
+  }
+
+  function click(s, t, accent, counting) {
+    const ctx = A.ctx;
+    const o = new OscillatorNode(ctx, { type: 'triangle', frequency: accent ? 1760 : 1320 });
+    const g = new GainNode(ctx, { gain: 0 });
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(accent ? 0.8 : 0.5, t + 0.002);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.06);
+    o.connect(g);
+    g.connect(counting && lp.clickVol <= -40 ? s.count : s.click); // the count-in always sounds
+    o.start(t);
+    o.stop(t + 0.07);
+  }
+
+  function playSlot(s, sl, when) {
+    const buf = take.get(sl.id);
+    if (!buf) {
+      if (s.recIds && s.recIds.has(sl.id)) s.pending.push({ sl, when }); // still on its way from the recorder
+      return;
+    }
+    // A chord lengthened after recording plays what it has, then fades rather than cutting off.
+    const ctx = A.ctx, dur = Math.min(sl.len * s.spb, buf.duration - XF);
+    const start = Math.max(when, ctx.currentTime + 0.005), off = start - when;
+    if (off > dur - XF) return;
+    const src = new AudioBufferSourceNode(ctx, { buffer: buf });
+    const g = new GainNode(ctx, { gain: 0 });
+    g.gain.setValueAtTime(0, start);
+    g.gain.linearRampToValueAtTime(1, start + XF);
+    g.gain.setValueAtTime(1, when + dur);
+    g.gain.linearRampToValueAtTime(0, when + dur + XF);
+    src.connect(g);
+    g.connect(s.loop);
+    src.start(start, off);
+    src.stop(when + dur + XF);
+  }
+
+  function onTake(m) {
+    if (!m || m.type !== 'take') return;
+    const s = S && m.session === S.id ? S : finishing && m.session === finishing.id ? finishing : null;
+    if (!s) return;
+    const buf = new AudioBuffer({ numberOfChannels: 2, length: m.ch[0].length, sampleRate: A.ctx.sampleRate });
+    buf.copyToChannel(m.ch[0], 0);
+    buf.copyToChannel(m.ch[1], 1);
+    take.set(m.key, buf);
+    s.got++;
+    if (s === S) s.pending = s.pending.filter((p) => (p.sl.id === m.key ? (playSlot(s, p.sl, p.when), false) : true));
+    const el = progEl.querySelector(`[data-id="${m.key}"]`);
+    if (el) el.classList.add('has');
+    if (s.got === s.recIds.size) {
+      if (s === finishing) finishing = null;
+      renderTransport();
+    }
+  }
+
+  // What is coming out of the speakers now, on the audio clock, so the lights match the sound.
+  function heardTime() {
+    const ctx = A.ctx;
+    const ts = ctx.getOutputTimestamp ? ctx.getOutputTimestamp() : null;
+    if (ts && ts.contextTime > 0) return ts.contextTime + (performance.now() - ts.performanceTime) / 1000;
+    return ctx.currentTime - (ctx.baseLatency || 0) - (ctx.outputLatency || 0);
+  }
+  function paintTransport() {
+    const s = S;
+    if (!s) return;
+    const now = heardTime();
+    while (s.events.length && s.events[0].t <= now) { shownEv = s.events.shift(); showBeat(shownEv); }
+    const ev = shownEv;
+    const el = ev && ev.id && progEl.querySelector(`[data-id="${ev.id}"]`);
+    if (el) el.style.setProperty('--p', ((ev.beat + clamp((now - ev.t) / s.spb, 0, 1)) / ev.len).toFixed(4));
+  }
+  function showBeat(ev) {
+    [...beatsEl.children].forEach((d, i) => d.classList.toggle('on', !!ev && i === ev.inBar));
+    passInfo.hidden = !(ev && S && S.cyc);
+    if (!passInfo.hidden) passInfo.textContent = ev.rec ? 'REC' : `${ev.pass}/${lp.repeat || '∞'}`;
+    countEl.hidden = !(ev && ev.count);
+    if (ev && ev.count) {
+      countEl.textContent = ev.count;
+      countEl.classList.toggle('rec', ev.rec);
+      countEl.classList.remove('beat');
+      void countEl.offsetWidth;
+      countEl.classList.add('beat');
+    }
+    for (const el of progEl.querySelectorAll('.chord.now')) {
+      if (ev && el.dataset.id === ev.id) continue;
+      el.classList.remove('now', 'rec');
+      el.style.removeProperty('--p');
+      el.querySelectorAll('.ticks i').forEach((t) => t.classList.remove('on'));
+    }
+    const el = ev && ev.id && progEl.querySelector(`[data-id="${ev.id}"]`);
+    if (!el) return;
+    el.classList.add('now');
+    el.classList.toggle('rec', ev.rec);
+    el.querySelectorAll('.ticks i').forEach((t, i) => t.classList.toggle('on', i <= ev.beat));
+  }
+
+  function renderBeats() { beatsEl.innerHTML = '<i></i>'.repeat(lp.meter); }
+  function renderTransport() {
+    const mode = S ? S.mode : '', recording = mode === 'rec';
+    metroBtn.classList.toggle('on', mode === 'metro');
+    recBtn.classList.toggle('on', recording);
+    playBtn.textContent = S && mode !== 'metro' ? '■ STOP' : '▶ PLAY';
+    clearBtn.disabled = wavBtn.disabled = recording || !hasTake();
+    bpmIn.disabled = tapBtn.disabled = recording || hasTake();
+    meterSel.disabled = recording;
+    progEl.classList.toggle('locked', recording);
+    $('#loopbar').classList.toggle('recording', recording);
+    if (recording) chordMenu.hidden = true;
+  }
+  function renderProg() {
+    const recorded = hasTake();
+    progEl.innerHTML = lp.chords.length ? '' : '<span class="prog-empty">+ CHORD to build a progression</span>';
+    for (const c of lp.chords) {
+      const el = document.createElement('div');
+      el.className = `chord${take.has(c.id) ? ' has' : recorded ? ' empty' : ''}`;
+      el.dataset.id = c.id;
+      el.style.flexGrow = c.len;
+      el.title = take.has(c.id) || !recorded
+        ? 'Drag to reorder. Click to change, duplicate or delete.'
+        : 'Nothing recorded on this chord: it plays silent. REC again to record it.';
+      el.innerHTML = `<b>${esc(chordName(c))}</b><span class="ticks">${'<i></i>'.repeat(c.len)}</span>`;
+      bindChipDrag(el, lp.chords, c, () => openChordMenu(c), progChanged);
+      progEl.appendChild(el);
+    }
+    if (shownEv && S) showBeat(shownEv);
+    renderTransport();
+  }
+  function progChanged() { renderProg(); save(); }
+
+  // Chord editor: drops down under the chip.
+  let menuFor = null;
+  function openChordMenu(c) {
+    const el = progEl.querySelector(`[data-id="${c.id}"]`);
+    if (!el) return;
+    menuFor = c;
+    const row = (label, items) => `<div class="cm-row"><span>${label}</span><div>${items}</div></div>`;
+    const opt = (attr, v, text, on) => `<button data-${attr}="${v}" class="${on ? 'on' : ''}">${text}</button>`;
+    chordMenu.innerHTML =
+      row('ROOT', ROOTS.map((r) => opt('root', r, r, r === c.root)).join('')) +
+      QUAL_ROWS.map(([label, qs]) => row(label, qs.map((q) => opt('q', q, q || 'maj', q === c.q)).join(''))).join('') +
+      row('BEATS', LENS.map((n) => opt('len', n, n, n === c.len)).join('')) +
+      '<div class="cm-actions"><button data-act="dup">DUPLICATE</button><button data-act="del">DELETE</button></div>';
+    chordMenu.hidden = false;
+    const r = el.getBoundingClientRect();
+    chordMenu.style.left = `${clamp(r.left, 6, innerWidth - chordMenu.offsetWidth - 6)}px`;
+    // Below the chip, but kept inside a short window (it may then overlap the lane).
+    chordMenu.style.top = `${Math.max(6, Math.min(r.bottom + 6, innerHeight - chordMenu.offsetHeight - 6))}px`;
+  }
+  chordMenu.addEventListener('click', (e) => {
+    const b = e.target.closest('button'), c = menuFor, d = b ? b.dataset : null;
+    if (!d || !c || !lp.chords.includes(c)) return;
+    if (d.act === 'dup') {
+      chordMenu.hidden = true;
+      if (lp.chords.length >= MAX_CHORDS) { toast(`A loop holds up to ${MAX_CHORDS} chords.`); return; }
+      const copy = { ...c, id: uid() };
+      if (take.has(c.id)) take.set(copy.id, take.get(c.id));
+      lp.chords.splice(lp.chords.indexOf(c) + 1, 0, copy);
+      progChanged();
+      return;
+    }
+    if (d.act === 'del') {
+      chordMenu.hidden = true;
+      const i = lp.chords.indexOf(c);
+      lp.chords.splice(i, 1);
+      progChanged();
+      toast(`${chordName(c)} removed`, 'UNDO', () => { lp.chords.splice(Math.min(i, lp.chords.length), 0, c); progChanged(); });
+      return;
+    }
+    if (d.root) c.root = d.root;
+    else if (d.len) c.len = Number(d.len);
+    else if ('q' in d) c.q = d.q;
+    progChanged();
+    openChordMenu(c);
+  });
+  document.addEventListener('click', (e) => { if (!e.target.closest('.chord, .chord-menu, #addChord')) chordMenu.hidden = true; });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') chordMenu.hidden = true; });
+  $('#addChord').addEventListener('click', () => {
+    if (S && S.mode === 'rec') return;
+    if (lp.chords.length >= MAX_CHORDS) { toast(`A loop holds up to ${MAX_CHORDS} chords.`); return; }
+    const last = lp.chords[lp.chords.length - 1];
+    const c = last ? { ...last, id: uid() } : chord('C');
+    lp.chords.push(c);
+    progChanged();
+    openChordMenu(c);
+  });
+
+  // Tempo and time signature: a running transport keeps its place on the grid.
+  function setTempo(bpm) {
+    lp.bpm = clamp(Math.round(bpm) || lp.bpm, 40, 240);
+    bpmIn.value = lp.bpm;
+    if (S) {
+      const next = S.t0 + S.next * S.spb;
+      S.spb = 60 / lp.bpm;
+      S.t0 = next - S.next * S.spb;
+    }
+    save();
+  }
+  bpmIn.value = lp.bpm;
+  bpmIn.addEventListener('change', () => setTempo(Number(bpmIn.value)));
+  bpmIn.addEventListener('wheel', (e) => {
+    if (bpmIn.disabled) return;
+    e.preventDefault();
+    setTempo(lp.bpm + (e.deltaY < 0 ? 1 : -1) * (e.shiftKey ? 5 : 1));
+  }, { passive: false });
+  // Tap tempo: the average of the last few taps; a 2 s pause starts over.
+  let taps = [];
+  tapBtn.addEventListener('click', () => {
+    const now = performance.now();
+    if (taps.length && now - taps[taps.length - 1] > 2000) taps = [];
+    taps.push(now);
+    if (taps.length > 5) taps.shift();
+    if (taps.length >= 2) setTempo(60000 * (taps.length - 1) / (taps[taps.length - 1] - taps[0]));
+  });
+  meterSel.value = String(lp.meter);
+  meterSel.addEventListener('change', () => {
+    lp.meter = Number(meterSel.value);
+    if (S) S.meter = lp.meter;
+    renderBeats();
+    save();
+  });
+  const volFmt = (v) => (v <= -40 ? 'OFF' : `${v > 0 ? '+' : ''}${v} dB`);
+  bindSlider('clickVol', 'clickVol', volFmt, lp, DEFAULT_LOOP);
+  bindSlider('loopVol', 'loopVol', volFmt, lp, DEFAULT_LOOP);
+  repeatSel.value = String(lp.repeat);
+  repeatSel.addEventListener('change', () => {
+    lp.repeat = Number(repeatSel.value);
+    if (shownEv && S) showBeat(shownEv);
+    save();
+  });
+  syncIn.value = lp.sync;
+  syncIn.addEventListener('change', () => {
+    lp.sync = clamp(Math.round(Number(syncIn.value)) || 0, -100, 200);
+    syncIn.value = lp.sync;
+    save();
+  });
+
+  // Transport buttons
+  async function withAudio(fn) {
+    try { await ensureAudio(); fn(); } catch (err) { toast(audioErrorHelp(err), null, null, true); }
+  }
+  metroBtn.addEventListener('click', () => {
+    if (S && S.mode === 'metro') { stopTransport(); return; }
+    if (S) { toast('The click already runs with the loop. CLICK sets its volume.'); return; }
+    withAudio(() => startTransport('metro'));
+  });
+  recBtn.addEventListener('click', () => {
+    if (S && S.mode === 'rec') { stopTransport(); return; }
+    if (!A.running) { toast('Press START first, with your guitar plugged in.'); return; }
+    if (!A.stream) { toast('No guitar input: plug the interface or cable back in first.', null, null, true); return; }
+    if (!lp.chords.length) { toast('Add chords first: + CHORD.'); return; }
+    const secs = progAt(0).end * 60 / lp.bpm;
+    if (secs > MAX_REC_S) { toast(`That progression lasts ${Math.round(secs)} s; a recording can be up to ${MAX_REC_S / 60} minutes. Remove chords or raise the BPM.`); return; }
+    startTransport('rec');
+  });
+  playBtn.addEventListener('click', () => {
+    if (S && S.mode !== 'metro') { stopTransport(); return; }
+    if (!lp.chords.length) { toast('Add chords first: + CHORD.'); return; }
+    withAudio(() => startTransport('play'));
+  });
+  // WAV export: one pass in the current chord order, mixed exactly as it plays back (same LEAD and
+  // crossfades) and wrapped round, so the file starts on beat 1 and loops seamlessly elsewhere.
+  function loopPass() {
+    const sr = lp.chords.map((c) => take.get(c.id)).find(Boolean).sampleRate;
+    const spb = 60 / lp.bpm, xf = Math.round(XF * sr), lead = Math.round(LEAD * sr);
+    const { end, slots } = progAt(0);
+    const n = Math.round(end * spb * sr);
+    const out = [new Float32Array(n), new Float32Array(n)];
+    for (const sl of slots) {
+      const buf = take.get(sl.id);
+      if (!buf || buf.sampleRate !== sr) continue; // a chord added after recording is silent
+      const dur = Math.min(Math.round(sl.len * spb * sr), buf.length - xf);
+      const at = Math.round(sl.beat * spb * sr) - lead;
+      for (let c = 0; c < 2; c++) {
+        const src = buf.getChannelData(Math.min(c, buf.numberOfChannels - 1)), dst = out[c];
+        for (let i = 0; i < dur + xf; i++) {
+          const g = i < xf ? i / xf : i < dur ? 1 : 1 - (i - dur) / xf;
+          dst[(at + i + n) % n] += src[i] * g;
+        }
+      }
+    }
+    return { out, sr };
+  }
+  function wav24(chs, sr) { // 24-bit PCM, interleaved
+    const n = chs[0].length, nc = chs.length, ba = nc * 3;
+    const bytes = new Uint8Array(44 + n * ba), v = new DataView(bytes.buffer);
+    const str = (o, s) => { for (let i = 0; i < s.length; i++) bytes[o + i] = s.charCodeAt(i); };
+    str(0, 'RIFF'); v.setUint32(4, 36 + n * ba, true); str(8, 'WAVE');
+    str(12, 'fmt '); v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, nc, true);
+    v.setUint32(24, sr, true); v.setUint32(28, sr * ba, true); v.setUint16(32, ba, true); v.setUint16(34, 24, true);
+    str(36, 'data'); v.setUint32(40, n * ba, true);
+    for (let i = 0, o = 44; i < n; i++) {
+      for (let c = 0; c < nc; c++, o += 3) {
+        const s = Math.round(clamp(chs[c][i], -1, 1) * 8388607);
+        bytes[o] = s & 255; bytes[o + 1] = (s >> 8) & 255; bytes[o + 2] = (s >> 16) & 255;
+      }
+    }
+    return new Blob([bytes], { type: 'audio/wav' });
+  }
+  wavBtn.addEventListener('click', () => {
+    if (!hasTake()) return;
+    const { out, sr } = loopPass();
+    const chords = lp.chords.map(chordName).join('-').replace(/#/g, 's').replace(/[^A-Za-z0-9-]/g, '');
+    const name = `neonrig-${lp.bpm}bpm-${chords}`.slice(0, 80);
+    const url = URL.createObjectURL(wav24(out, sr));
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${name}.wav`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 30000);
+    toast(`Downloading ${name}.wav: one pass, ${(out[0].length / sr).toFixed(1)} s.`);
+  });
+
+  // Space bar = PLAY / STOP, so a hand never has to leave the guitar for long. Space is kept from
+  // also pressing whichever button has focus.
+  const typing = (e) => e.target.closest && e.target.closest('input, select, textarea');
+  document.addEventListener('keydown', (e) => {
+    if (e.code !== 'Space' || typing(e) || e.ctrlKey || e.metaKey || e.altKey) return;
+    e.preventDefault();
+    if (!e.repeat && $('#help').hidden) playBtn.click();
+  });
+  document.addEventListener('keyup', (e) => { if (e.code === 'Space' && !typing(e)) e.preventDefault(); });
+  clearBtn.addEventListener('click', () => {
+    const old = take, cleared = take = new Map();
+    renderProg();
+    toast('Recording cleared. The chords stay.', 'UNDO', () => {
+      if (take !== cleared || (S && S.mode === 'rec')) return; // a new take since: keep it
+      take = old;
+      renderProg();
+    });
+  });
+
   // ------------------------------------------------------------------ meters
 
   const scratch = new Float32Array(1024);
@@ -1271,6 +1862,7 @@
     }
   }
   function tick(now) {
+    paintTransport();
     if (A.running) {
       const c1 = peakOf(A.chMeter[0]), c2 = peakOf(A.chMeter[1]);
       paintMeter('ch1', c1, now);
@@ -1282,7 +1874,7 @@
       const raw = ch === '1' ? c1 : ch === '2' ? c2 : Math.max(c1, c2);
       if (raw >= 0.98 && now > clipWarnAt) {
         clipWarnAt = now + 20000;
-        toast('Input is clipping: turn down the gain on your interface (on a Scarlett, until its ring stays green), or the guitar\'s volume on a USB guitar cable. Hot pedals in front of it make this worse.', null, null, true);
+        toast('Input is clipping: turn down the gain on your interface (until its input light stays green), or the guitar\'s volume on a USB guitar cable. Hot pedals in front of it make this worse.', null, null, true);
       }
       // AUTO channel: follow whichever input is clearly carrying the guitar.
       loud[0] = c1 > 0.006 && c1 > c2 * 5 ? loud[0] + 1 : 0;
@@ -1311,6 +1903,8 @@
   }
   renderPresets();
   renderBoard();
+  renderBeats();
+  renderProg();
   if (needsArrange) arrange(false);
   let resizeRaf = 0;
   window.addEventListener('resize', () => {
@@ -1320,5 +1914,5 @@
   requestAnimationFrame(tick);
 
   // Debug handle for the console (and automated checks).
-  window.NEON_RIG = { board, engine: A, PEDALS };
+  window.NEON_RIG = { board, engine: A, PEDALS, looper: { get S() { return S; }, get take() { return take; } } };
 })();
