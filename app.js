@@ -249,14 +249,6 @@
       ['vibe', true, { mode: 'CHO', speed: 0.3, intensity: 0.75 }],
       ['amp', true, { voice: 'PLEXI', gain: 0.65, bass: 0.5, mid: 0.6, treble: 0.6, volume: 0.5 }],
       ['reverb', true, { level: 0.2, tone: 0.5, time: 0.45, mode: 2 }]] },
-    // Band of Gypsys, 1970: silicon Fuzz Face into a pushed Marshall, a medium Uni-Vibe throb, a
-    // short plate. Fuzz moderate so the pickup selector and picking still change the sound.
-    { name: 'Machine Gun (Band of Gypsys)', pedals: [
-      ['wah', false, { mode: 'AUTO', pos: 0.1, sens: 0.65, rate: 0.35 }],
-      ['fuzz', true, { voice: 'SI', fuzz: 0.55, volume: 0.55 }],
-      ['vibe', true, { mode: 'CHO', speed: 0.28, intensity: 0.65 }],
-      ['amp', true, { voice: 'PLEXI', gain: 0.7, bass: 0.55, mid: 0.65, treble: 0.45, volume: 0.5 }],
-      ['reverb', true, { level: 0.15, tone: 0.45, time: 0.4, mode: 2 }]] },
     // Cream-era Clapton: Marshall cranked, treble rolled right off, and a parked wah for
     // the vocal "woman tone" honk. Use the neck pickup with its tone knob down.
     { name: 'Cream Woman Tone (Clapton)', pedals: [
@@ -268,12 +260,6 @@
       ['ts', true, { drive: 0.8, tone: 0.6, level: 0.55 }],
       ['chorus', true, { rate: 0.2, depth: 0.35, mode: 'C' }],
       ['reverb', true, { level: 0.35, tone: 0.55, time: 0.5, mode: 5 }]] },
-    // Glassy Texas blues: a clean, bright Fender with the SCREAMER as a clean boost (level up,
-    // drive down) for edge and sparkle, and a little spring. Best on the middle or neck+middle pickups.
-    { name: 'Texas Glass Blues', pedals: [
-      ['ts', true, { drive: 0.12, tone: 0.68, level: 0.62 }],
-      ['amp', true, { voice: 'FENDER', gain: 0.35, bass: 0.4, mid: 0.4, treble: 0.72, volume: 0.5 }],
-      ['reverb', true, { level: 0.28, tone: 0.6, time: 0.4, mode: 3 }]] },
     // Spaghetti western: twangy clean Fender, Fender-style opto tremolo, a short tape echo and a
     // deep, drippy spring. Bridge pickup, play low on the neck.
     { name: 'Spaghetti Western', pedals: [

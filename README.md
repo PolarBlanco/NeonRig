@@ -82,10 +82,9 @@ swap the board out: it switches the pedals on or off and sets their knobs, so yo
 Your signal-chain order and where you've placed the pedals stay as they are. A preset only adds a pedal if the
 board doesn't have it (say you removed it).
 
-**21 factory presets** are starting points, for example **Psychedelic Hendrix** and **Machine Gun (Band of Gypsys)**
-(fuzz and vibe in Hendrix's order), **Cream Woman Tone (Clapton)**, **Texas Blues (SRV)** (slow, smooth blues with
-the compressor), **Texas Glass Blues**
-(clean, bright and glassy), **Spaghetti Western** (tremolo, tape echo and deep spring), **Echoplex Lead**,
+**19 factory presets** are starting points, for example **Psychedelic Hendrix** (fuzz and vibe in Hendrix's
+order), **Cream Woman Tone (Clapton)**, **Texas Blues (SRV)** (slow, smooth blues with the compressor),
+**Spaghetti Western** (tremolo, tape echo and deep spring), **Echoplex Lead**,
 **Phase Crunch**, **Jet Flanger** and **Use of Time (311)** (clean MESA, a short echo and a spacey CE-1 vibrato).
 
 The models are approximations written for this app, not circuit-exact clones. Beyond the pedals there's a
