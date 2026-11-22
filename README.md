@@ -58,7 +58,9 @@ the address it prints.
 
 | Pedal | Modelled after | Controls |
 | --- | --- | --- |
-| **VOLT WAH** | Dunlop Cry Baby (GCB95) wah | Position, Sens, Rate. Modes: **AUTO** (your picking opens the wah), **LFO** (sweeps by itself), **FIXED** ("parked" wah at POSITION) |
+| **FLUX COMP** | MXR Dyna Comp / Ross compressor | Sustain, Level, Blend. Evens out your picking and makes notes ring longer without adding drive. **BLEND** below full keeps your pick attack. Noon LEVEL matches bypass |
+| **DARK MATTER** | Boss OC-2 octave | Direct, Oct 1, Oct 2. Adds a note one and/or two octaves below what you play, following your picking dynamics. Made for single notes: chords make it warble, as on the real pedal |
+| **VOLT WAH** | Dunlop Cry Baby (GCB95) wah | Position, Sens, Rate. Modes: **AUTO** (your picking opens the wah), **LFO** (sweeps by itself), **FIXED** ("parked" wah at POSITION), **NOTE** (follows the notes you play: higher notes open it, held notes hold it, and it never drops below POSITION) |
 | **PLASMA FUZZ** | Dallas Arbiter Fuzz Face | Fuzz, Volume. **GERMANIUM** (warm, 1967 Hendrix) / **SILICON** (brighter, 1969-70). Roll back your guitar's volume to clean it up |
 | **NEON SCREAMER** | Tube Screamer (TS-808) overdrive | Drive, Tone, Level |
 | **ORBIT VIBE** | Shin-ei Uni-Vibe | Speed, Intensity. **CHORUS** (throbbing phase swirl) / **VIBRATO** (pitch wobble). The lamp glows with the sweep |
@@ -68,17 +70,23 @@ the address it prints.
 | **STROBE TREM** | Boss TR-2 tremolo / Fender amp tremolo | Rate, Depth. **SINE** (smooth swell) / **OPTO** (old Fender amp: quick dip, slow swell back) / **CHOP** (hard on/off) |
 | **GHOST ECHO** | Maestro Echoplex tape echo | Time (60-750 ms), Repeats, Mix. Repeats get darker like tape; turning TIME while it repeats bends the pitch. Repeats ring out when switched off |
 | **VOID VERB** | Boss RV-6 reverb | E.Level, Tone, Time, Mode: Room, Hall, Plate, Spring, Modulate, +Delay, Shimmer, Dynamic |
-| **NEON STACK** (amp) | **PLEXI**: Marshall 1959 · **HIWATT**: DR103 · **FENDER**: Blackface | Gain, Bass, Middle, Treble, Volume, and a power switch |
+| **NEON STACK** (amp) | **PLEXI**: Marshall 1959 · **HIWATT**: DR103 · **FENDER**: Blackface · **MESA**: Mesa/Boogie | Gain, Bass, Middle, Treble, Volume, and a power switch |
 
 **Which amp for which sound:** PLEXI for Led Zeppelin, Hendrix and Cream-era Clapton, HIWATT for The Who, and FENDER
-with the NEON SCREAMER in front for Stevie Ray Vaughan. GAIN below noon is genuinely clean on FENDER and HIWATT;
+with the NEON SCREAMER in front for Stevie Ray Vaughan, MESA for 311. GAIN below noon is genuinely clean on FENDER, HIWATT and MESA;
 the PLEXI always has a little hair, like the real one. The amp is for playing through headphones or speakers;
 keep **CAB SIM** on with it. If you play into a real amp, leave NEON STACK out.
 
-**20 factory presets** are starting points, for example **Psychedelic Hendrix** and **Machine Gun (Band of Gypsys)**
-(fuzz and vibe in Hendrix's order), **Cream Woman Tone (Clapton)**, **Texas Blues (SRV)**, **Texas Glass Blues**
+The board opens with one of every pedal, laid out in chain order and sized to fit your window. A preset doesn't
+swap the board out: it switches the pedals on or off and sets their knobs, so you can see exactly what it uses.
+Your signal-chain order and where you've placed the pedals stay as they are. A preset only adds a pedal if the
+board doesn't have it (say you removed it).
+
+**21 factory presets** are starting points, for example **Psychedelic Hendrix** and **Machine Gun (Band of Gypsys)**
+(fuzz and vibe in Hendrix's order), **Cream Woman Tone (Clapton)**, **Texas Blues (SRV)** (slow, smooth blues with
+the compressor), **Texas Glass Blues**
 (clean, bright and glassy), **Spaghetti Western** (tremolo, tape echo and deep spring), **Echoplex Lead**,
-**Phase Crunch** and **Jet Flanger**.
+**Phase Crunch**, **Jet Flanger** and **Use of Time (311)** (clean MESA, a short echo and a spacey CE-1 vibrato).
 
 The models are approximations written for this app, not circuit-exact clones. Beyond the pedals there's a
 metronome and a simple chord-locked looper (see below), but no multitrack recording.
@@ -89,9 +97,16 @@ metronome and a simple chord-locked looper (see below), but no multitrack record
 - **Not sure what something does?** Rest the mouse on it for a moment and a tip pops up beside it.
 - **Footswitch** (bottom of each pedal): click to engage or bypass. Reverb and echo tails ring out when bypassed.
 - **Move pedals**: drag them by the body. **Change the signal order**: drag the chips in the SIGNAL CHAIN bar.
-- **ARRANGE** lines pedals up in chain order. **+ ADD PEDAL** adds more (two drives is fine), and each new pedal
-  lands where it usually goes in a chain. The × on a pedal removes it, with UNDO.
+- **+ ADD PEDAL** adds more (two drives is fine). Each new pedal goes straight into its usual place in the chain:
+  compressor → wah → fuzz → overdrive → vibe → phaser → flanger → amp → chorus → tremolo → echo → reverb. A second pedal of
+  the same kind goes right after the first. If you've rearranged your chain, it picks the closest fit. You can
+  always drag its chip somewhere else.
+- **ARRANGE** lines the pedals up on the board in chain order and fits them to the window. The × on a pedal
+  removes it, with UNDO; it stays removed until you add it again.
 - The board saves itself. **SAVE** stores your own named presets.
+- **TUNER** (top bar): play one string at a time. The big note shows the nearest note, the needle how far off
+  it is (in cents), and the string you're on lights up. It turns cyan when you're in tune. Like a pedal tuner it
+  mutes the output while it's open; switch its **MUTE** off to hear yourself. Standard pitch, A = 440 Hz.
 
 ## Plug and go
 
@@ -221,8 +236,10 @@ in the browser's own local storage on your computer.
 
 - `index.html`, `style.css`, `app.js`: UI, layout, presets, metronome/looper and audio routing (Web Audio API)
 - `dsp.js`: the pedal models and the loop recorder (AudioWorklet processors)
+- `tuner.js`: the tuner's pitch detection
 - `serve.js`: optional local web server (`node serve.js`). It listens on 127.0.0.1 only, serves only this
   folder, answers only GET/HEAD requests addressed to `127.0.0.1` or `localhost`, and never runs anything it serves.
-- `tests/dsp-test.js`: offline DSP checks (`node tests/dsp-test.js`, needs Node.js)
+- `tests/dsp-test.js`, `tests/tuner-test.js`: offline checks (`node tests/dsp-test.js`, `node tests/tuner-test.js`;
+  needs Node.js)
 - `fonts/`: Orbitron and Share Tech Mono, bundled so the app never contacts a font server (SIL Open Font
   License 1.1; the licence texts are in the same folder)

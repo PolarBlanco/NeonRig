@@ -54,7 +54,8 @@
   </div>
 
   <div class="group">
-    <select id="presetSelect" title="Load a preset: factory tones or your own"></select>
+    <button id="tunerBtn" class="toggle" title="Guitar tuner. Mutes the output while it's open, like a pedal tuner.">TUNER</button>
+    <select id="presetSelect" title="Load a preset: it switches the pedals on the board on or off and sets their knobs"></select>
     <button id="presetSave" title="Save the current board as a preset">SAVE</button>
     <button id="presetDelete" title="Delete the selected preset (yours only)">DEL</button>
     <button id="helpBtn" class="round" title="Setup help">?</button>
@@ -152,8 +153,9 @@
       <li><b>Knobs</b>: drag up/down, or scroll. Hold Shift for fine moves; double-click resets.</li>
       <li><b>Footswitch</b> (bottom of each pedal): click to engage or bypass. The LED shows the state.</li>
       <li><b>Move pedals</b>: drag them by the body. <b>Reorder the signal</b>: drag the chips in SIGNAL CHAIN.</li>
-      <li><b>ARRANGE</b> lines everything up in chain order. <b>+ ADD PEDAL</b> adds more (doubles are fine).</li>
-      <li>The board saves itself. Use <b>SAVE</b> to keep named presets.</li>
+      <li>The board opens with every pedal, laid out in chain order and sized to fit the window. <b>ARRANGE</b> lines them up again after you move things. <b>+ ADD PEDAL</b> adds more (doubles are fine).</li>
+      <li><b>PRESETS</b> switch the pedals on the board on or off and set their knobs; your pedal order and layout stay as they are, and nothing is thrown away. The board saves itself. Use <b>SAVE</b> to keep named presets.</li>
+      <li><b>TUNER</b>: play one string at a time. The needle centres and the note turns cyan when it's in tune. The output is muted while tuning (switch <b>MUTE</b> off to hear yourself).</li>
     </ul>
     <h2>LOOP</h2>
     <ul>
@@ -168,9 +170,30 @@
   </div>
 </div>
 
+<div id="tuner" class="tuner" hidden>
+  <div class="tn-head">
+    <span class="tn-title">TUNER</span>
+    <button id="tunerMute" class="toggle" title="Mute the output while tuning. Off: you hear yourself tune.">MUTE</button>
+    <button class="close" id="tunerClose" title="Close the tuner (Esc)">×</button>
+  </div>
+  <div class="tn-main">
+    <span class="tn-arrow tn-flat" aria-hidden="true">▶</span>
+    <div class="tn-note"><span id="tnNote">--</span><sub id="tnOct"></sub></div>
+    <span class="tn-arrow tn-sharp" aria-hidden="true">◀</span>
+  </div>
+  <div class="tn-scale" aria-hidden="true">
+    <i class="tn-ticks"></i><i class="tn-center"></i><i id="tnNeedle" class="tn-needle"></i>
+    <span class="tn-lab l">-50</span><span class="tn-lab c">0</span><span class="tn-lab r">+50</span>
+  </div>
+  <div class="tn-read" id="tnRead">A4 = 440 Hz</div>
+  <div class="tn-hint" id="tnHint">Play one string</div>
+  <div class="tn-strings" id="tnStrings" title="Standard tuning, low to high. The string you're playing lights up."></div>
+</div>
+
 <div id="toast" class="toast" hidden></div>
 
 <script src="dsp.js"></script>
+<script src="tuner.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

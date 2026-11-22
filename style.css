@@ -819,3 +819,74 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 @media (prefers-reduced-motion: reduce) {
   .power.on, body.live .c-flow, .loopbar.recording, .countin.beat, .pedal.flash { animation: none; }
 }
+
+/* ------------------------------------------------------------------ tuner
+ * A floating card over the board. The needle sits at --c cents (-50..+50); the note glows cyan
+ * in tune, amber when close, pink when off. Flat lights the left arrow, sharp the right. */
+
+.tuner {
+  position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 90;
+  width: min(440px, calc(100vw - 32px));
+  padding: 14px 20px 16px; border-radius: 14px;
+  border: 1px solid transparent;
+  background:
+    linear-gradient(rgba(13, 12, 22, .97), rgba(13, 12, 22, .97)) padding-box,
+    linear-gradient(135deg, rgba(255, 46, 136, .7), rgba(157, 92, 255, .6), rgba(46, 230, 255, .75)) border-box;
+  box-shadow: 0 0 40px rgba(157, 92, 255, .25), 0 20px 60px rgba(0, 0, 0, .6);
+  --tn: var(--dim);
+}
+.tuner[data-state="intune"] { --tn: var(--cyan); }
+.tuner[data-state="close"] { --tn: var(--amber); }
+.tuner[data-state="off"] { --tn: var(--pink); }
+.tn-head { display: flex; align-items: center; gap: 10px; }
+.tn-title { font: 700 12px var(--display); letter-spacing: .25em; background: var(--edge); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.tuner .toggle {
+  margin-left: auto; margin-right: 26px; padding: 3px 10px; border-radius: 6px; cursor: pointer;
+  font: 11px var(--mono); background: linear-gradient(180deg, #19172a, #110f1c); border: 1px solid var(--line); color: var(--dim);
+}
+.tuner .toggle.on { color: var(--cyan); }
+.tuner .close { top: 8px; right: 12px; }
+
+.tn-main { display: flex; align-items: center; justify-content: center; gap: 22px; margin: 6px 0 2px; }
+.tn-note {
+  min-width: 2.6ch; text-align: center;
+  font: 900 64px/1 var(--display); color: var(--tn);
+  text-shadow: 0 0 18px color-mix(in srgb, var(--tn) 55%, transparent);
+  transition: color .15s, text-shadow .15s;
+}
+.tn-note sub { font: 700 18px var(--display); vertical-align: baseline; margin-left: 2px; opacity: .8; }
+.tn-arrow { font-size: 22px; color: var(--line); transition: color .1s, text-shadow .1s; }
+.tuner.flat .tn-flat, .tuner.sharp .tn-sharp { color: var(--tn); text-shadow: 0 0 10px var(--tn); }
+
+.tn-scale { position: relative; height: 46px; margin: 4px 6px 0; }
+.tn-ticks {
+  position: absolute; left: 0; right: 0; top: 4px; height: 18px;
+  background: repeating-linear-gradient(90deg, var(--line) 0 1px, transparent 1px 10%);
+  border-right: 1px solid var(--line);
+}
+.tn-center { position: absolute; left: 50%; top: 0; width: 2px; height: 26px; margin-left: -1px; background: var(--cyan); opacity: .55; }
+.tuner[data-state="intune"] .tn-center { opacity: 1; box-shadow: 0 0 10px var(--cyan); }
+.tn-needle {
+  --c: 0;
+  position: absolute; top: -2px; left: calc(50% + var(--c) * 1%); width: 4px; height: 30px; margin-left: -2px;
+  border-radius: 2px; background: var(--tn); box-shadow: 0 0 10px var(--tn);
+  transition: left .09s linear, background .15s; opacity: .25;
+}
+.tuner.live .tn-needle { opacity: 1; }
+.tn-lab { position: absolute; top: 28px; font-size: 10px; color: var(--dim); }
+.tn-lab.l { left: 0; } .tn-lab.c { left: 50%; transform: translateX(-50%); } .tn-lab.r { right: 0; }
+
+.tn-read { text-align: center; color: var(--text); font-size: 13px; min-height: 18px; }
+.tn-hint { text-align: center; font: 700 11px var(--display); letter-spacing: .18em; color: var(--tn); margin: 4px 0 12px; min-height: 15px; }
+.tuner:not(.live) .tn-hint { color: var(--dim); }
+.tn-strings { display: flex; justify-content: center; gap: 8px; }
+.tn-strings span {
+  position: relative; width: 40px; padding: 5px 0 4px; text-align: center; border-radius: 7px;
+  font: 700 14px var(--display); color: var(--dim); border: 1px solid var(--line); background: #110f1c;
+}
+.tn-strings small { display: block; font: 9px var(--mono); opacity: .7; }
+.tn-strings span.hit { color: var(--tn); border-color: var(--tn); box-shadow: 0 0 12px color-mix(in srgb, var(--tn) 45%, transparent); }
+
+@media (prefers-reduced-motion: reduce) {
+  .tn-needle, .tn-note, .tn-arrow { transition: none; }
+}

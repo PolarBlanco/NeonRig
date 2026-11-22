@@ -55,6 +55,20 @@ const sine = (f, amp) => (i) => amp * Math.sin(2 * Math.PI * f * i / SR);
 let seed = 12345;
 const noise = (amp) => () => { seed = (seed * 1664525 + 1013904223) >>> 0; return amp * (seed / 2 ** 32 * 2 - 1); };
 const burst = (amp, secs) => { const n = noise(amp); return (i) => (i < secs * SR ? n() : 0); };
+// A noise burst limited to the guitar's band (4 one-poles at 5 kHz) with the same level in that
+// band at every sample rate. White noise spreads its power evenly up to SR/2, so at 96 kHz only half
+// of it lands in the audio band; that made the reverb read ~3 dB quieter there (2026-11-22). Scaling
+// by sqrt(SR / 48000) keeps the in-band level fixed. Its own seed, so it repeats.
+const GB_AMP = 0.36; // reverb ROOM's early tail ~-44.4 dBFS, the same margin as the old white-noise burst
+const guitarBurst = (amp, secs) => {
+  let s = 777; const a = Math.exp(-2 * Math.PI * 5000 / SR), z = [0, 0, 0, 0], k0 = amp * Math.sqrt(SR / 48000);
+  return (i) => {
+    s = (s * 1664525 + 1013904223) >>> 0;
+    let x = i < secs * SR ? k0 * (s / 2 ** 32 * 2 - 1) : 0;
+    for (let k = 0; k < 4; k++) { z[k] = x + a * (z[k] - x); x = z[k]; }
+    return x;
+  };
+};
 // A decaying plucked-string-ish note, roughly what a guitar DI looks like.
 const pluck = (f, amp) => (i) => amp * Math.exp(-i / (SR * 0.6)) *
   (Math.sin(2 * Math.PI * f * i / SR) + 0.5 * Math.sin(4 * Math.PI * f * i / SR) + 0.25 * Math.sin(6 * Math.PI * f * i / SR));
@@ -194,8 +208,6 @@ function inharmonic(procs, f0, maxHz) {
   const bright = run(make('neon-ts', { drive: 0.5, tone: 1, level: 0.5 }), 1, sine(3000, 0.1));
   const dark = run(make('neon-ts', { drive: 0.5, tone: 0, level: 0.5 }), 1, sine(3000, 0.1));
   check(rms(bright.L, SR / 2) > rms(dark.L, SR / 2) * 2, 'TS TONE brightens', `3 kHz ${(20 * Math.log10(rms(bright.L, SR / 2) / rms(dark.L, SR / 2))).toFixed(1)} dB brighter`);
-  const by = run(make('neon-ts', { drive: 1 }, false), 0.2, dry);
-  check(by.L.every((v, i) => Math.abs(v - Math.fround(dry(i))) < 1e-6), 'TS bypass is clean');
   const hot = run(make('neon-ts', { drive: 1, level: 1 }), 1, noise(1));
   check(finite(hot.L) && peak(hot.L) < 5, 'TS stable with full-scale noise', `peak ${peak(hot.L).toFixed(2)}`);
   const perf = run(make('neon-ts', { drive: 0.7 }), 10, pluck(110, 0.3));
@@ -220,8 +232,6 @@ for (const mode of ['S', 'C', 'V']) {
   const periods = zc.slice(1).map((z, i) => z - zc[i]);
   const spread = Math.max(...periods) - Math.min(...periods);
   check(spread >= 3, 'Chorus V modulates pitch', `period spread ${spread} samples`);
-  const by = run(make('neon-chorus', { mode: 'C' }, false), 0.2, sine(330, 0.2));
-  check(by.L.every((v, i) => Math.abs(v - Math.fround(sine(330, 0.2)(i))) < 1e-6), 'Chorus bypass is clean');
   const perf = run(make('neon-chorus', { mode: 'C' }), 10, pluck(110, 0.3));
   console.log(`      Chorus CPU: ${cpu(perf)}`);
 }
@@ -254,10 +264,28 @@ for (const mode of ['S', 'C', 'V']) {
   };
   const soft = sweepMax(0.03), hard = sweepMax(0.3);
   check(hard > soft + 0.2, 'Wah AUTO follows picking strength', `sweep reached ${soft.toFixed(2)} soft vs ${hard.toFixed(2)} hard`);
-  const by = run(make('neon-wah', { mode: 'LFO' }, false), 0.2, sine(330, 0.2));
-  check(by.L.every((v, i) => Math.abs(v - Math.fround(sine(330, 0.2)(i))) < 1e-6), 'Wah bypass is clean');
   const perf = run(make('neon-wah', { mode: 'AUTO' }), 10, pluck(110, 0.3));
   console.log(`      Wah CPU: ${cpu(perf)}`);
+
+  // NOTE mode: the wah follows the pitch played. Higher notes sit higher, a held note holds its
+  // place, it never drops below POSITION (the floor), and it eases back there between phrases.
+  const NOTE = { mode: 'NOTE', pos: 0.3, sens: 0.5, rate: 0.55 };
+  const held = (f, harm) => (i) => 0.25 * Math.exp(-i / (SR * 1.5)) * harm.reduce((s, a, k) => s + a * Math.sin(2 * Math.PI * f * (k + 1) * i / SR + k * 0.7), 0);
+  const posAfter = (f, harm, secs) => { const w = make('neon-wah', NOTE); run(w, secs, held(f, harm)); return w.sweep.v; };
+  for (const [tone, harm] of [['neck', [1, 0.5, 0.25, 0.12]], ['bridge', [0.6, 1, 0.8, 0.6, 0.45, 0.3, 0.2]]]) {
+    const ladder = [165, 220, 330, 440, 659].map((f) => posAfter(f, harm, 0.8));
+    const rising = ladder.every((v, i) => i === 0 || v > ladder[i - 1] + 0.05);
+    check(rising && ladder[0] > 0.35, `Wah NOTE: higher notes open it further (${tone} pickup)`, ladder.map((v) => v.toFixed(2)).join(' < '));
+  }
+  {
+    const w = make('neon-wah', NOTE), seen = [];
+    const r = run(w, 5, (i) => (i < 2 * SR ? held(440, [1, 0.5, 0.25])(i) : 0), (t) => { seen.push(w.sweep.v); });
+    const at = (t) => seen[Math.floor(t * SR / BLOCK)];
+    check(Math.abs(at(1.9) - at(0.6)) < 0.03, 'Wah NOTE: a held note holds its place as it rings',
+      `${at(0.6).toFixed(2)} at 0.6 s, ${at(1.9).toFixed(2)} at 1.9 s`);
+    check(Math.min(...seen) >= 0.3 - 1e-6 && Math.abs(seen[seen.length - 1] - 0.3) < 0.03 && finite(r.L) && peak(r.L) < 2,
+      'Wah NOTE: never below POSITION, and back to it after the phrase', `${seen[seen.length - 1].toFixed(2)} 3 s after`);
+  }
 }
 
 // ------------------------------------------------------------------ fuzz
@@ -279,8 +307,6 @@ for (const mode of ['S', 'C', 'V']) {
   }
   const aFz = inharmonic([make('neon-fuzz', { voice: 'GE', fuzz: 1 })], 2489, 20000);
   check(aFz < -50, 'Fuzz keeps aliasing low', `2.5 kHz note: ${aFz.toFixed(1)} dB vs harmonics`);
-  const by = run(make('neon-fuzz', { fuzz: 1 }, false), 0.2, sine(330, 0.2));
-  check(by.L.every((v, i) => Math.abs(v - Math.fround(sine(330, 0.2)(i))) < 1e-6), 'Fuzz bypass is clean');
   const p = make('neon-fuzz', { voice: 'GE' });
   let k = 0;
   const sw = run(p, 2, pluck(110, 0.2), (tt) => { if (tt >= k * 0.4) { send(p, { type: 'param', name: 'voice', value: k % 2 ? 'SI' : 'GE' }); k++; } });
@@ -319,8 +345,6 @@ for (const mode of ['S', 'C', 'V']) {
   let up = 0, down = 0;
   for (let i = 1; i < lamp.length; i++) { if (lamp[i] > lamp[i - 1]) up++; else if (lamp[i] < lamp[i - 1]) down++; }
   check(lamp.length > 20 && up < down, 'Vibe lamp rises faster than it falls', `${up} rising vs ${down} falling updates`);
-  const by = run(make('neon-vibe', {}, false), 0.2, sine(330, 0.2));
-  check(by.L.every((v, i) => Math.abs(v - Math.fround(sine(330, 0.2)(i))) < 1e-6), 'Vibe bypass is clean');
   const perf = run(make('neon-vibe', { intensity: 0.8 }), 10, pluck(110, 0.3));
   console.log(`      Vibe CPU: ${cpu(perf)}`);
 }
@@ -399,26 +423,24 @@ for (const mode of ['S', 'C', 'V']) {
   }
   // Clean headroom: low GAIN on a hot (-10 dBFS peak) input should stay clean.
   const cleanThd = (voice) => thd(run(make('neon-amp', { voice, gain: 0 }), 2, sine(196, 0.3)).L, 196) * 100;
-  const fClean = cleanThd('FENDER'), hClean = cleanThd('HIWATT');
-  check(fClean < 1 && hClean < 1.5, 'Amp GAIN 0 is clean on a hot input', `THD FENDER ${fClean.toFixed(2)}%, HIWATT ${hClean.toFixed(2)}%`);
+  const fClean = cleanThd('FENDER'), hClean = cleanThd('HIWATT'), mClean = cleanThd('MESA');
+  check(fClean < 1 && hClean < 1.5 && mClean < 1.5, 'Amp GAIN 0 is clean on a hot input', `THD FENDER ${fClean.toFixed(2)}%, HIWATT ${hClean.toFixed(2)}%, MESA ${mClean.toFixed(2)}%`);
   // GAIN at noon on a typical hard-picked peak (-12 dBFS) is edge of breakup, as on the real amps.
   // Too hot here and an overdrive in front turns the amp into square-wave fizz (the SRV bug).
   const noon = (procs) => thd(series(procs, Float32Array.from({ length: 2 * SR }, (_, i) => sine(196, 0.25)(i))).subarray(SR), 196) * 100;
   const nF = noon([make('neon-amp', { voice: 'FENDER' })]), nH = noon([make('neon-amp', { voice: 'HIWATT' })]);
-  const nP = noon([make('neon-amp', { voice: 'PLEXI' })]);
+  const nP = noon([make('neon-amp', { voice: 'PLEXI' })]), nM = noon([make('neon-amp', { voice: 'MESA' })]);
   const srv = noon([make('neon-ts', { drive: 0.2, tone: 0.55, level: 0.85 }), make('neon-amp', { voice: 'FENDER', gain: 0.55 })]);
-  check(nF < 8 && nH < 10 && nP < 18 && srv < 30, 'Amp GAIN noon breaks up, but does not fizz with a drive in front',
-    `THD at -12 dBFS: FENDER ${nF.toFixed(1)}%, HIWATT ${nH.toFixed(1)}%, PLEXI ${nP.toFixed(1)}%, SRV TS > FENDER ${srv.toFixed(1)}%`);
+  check(nF < 8 && nH < 10 && nP < 18 && nM < 14 && srv < 30, 'Amp GAIN noon breaks up, but does not fizz with a drive in front',
+    `THD at -12 dBFS: FENDER ${nF.toFixed(1)}%, HIWATT ${nH.toFixed(1)}%, PLEXI ${nP.toFixed(1)}%, MESA ${nM.toFixed(1)}%, SRV TS > FENDER ${srv.toFixed(1)}%`);
   // Aliasing: a high lead note through overdrive into a cranked Plexi.
   const aTs = inharmonic([make('neon-ts', { drive: 1 })], 2489, 20000);
   const aChain = inharmonic([make('neon-ts', { drive: 1 }), make('neon-amp', { voice: 'PLEXI', gain: 0.9 })], 2489, 20000);
   check(aTs < -55 && aChain < -45, 'Drive and amp keep aliasing (inharmonic fizz) low',
     `2.5 kHz note: TS ${aTs.toFixed(1)} dB, TS > PLEXI ${aChain.toFixed(1)} dB vs harmonics`);
-  const by = run(make('neon-amp', { voice: 'PLEXI', gain: 1 }, false), 0.2, sine(330, 0.2));
-  check(by.L.every((v, i) => Math.abs(v - Math.fround(sine(330, 0.2)(i))) < 1e-6), 'Amp off passes dry');
   const p = make('neon-amp', { voice: 'PLEXI' });
   let k = 0;
-  const rv = run(p, 2, pluck(110, 0.2), (t) => { if (t >= k * 0.4) { send(p, { type: 'param', name: 'voice', value: ['PLEXI', 'HIWATT', 'FENDER'][k % 3] }); k++; } });
+  const rv = run(p, 2, pluck(110, 0.2), (t) => { if (t >= k * 0.4) { send(p, { type: 'param', name: 'voice', value: ['PLEXI', 'HIWATT', 'FENDER', 'MESA'][k % 4] }); k++; } });
   check(finite(rv.L), 'Amp voice switching is safe');
   const perf = run(make('neon-amp', { voice: 'PLEXI', gain: 0.8 }), 10, pluck(110, 0.3));
   console.log(`      Amp CPU: ${cpu(perf)}`);
@@ -428,7 +450,7 @@ for (const mode of ['S', 'C', 'V']) {
 const MODES = DSP.RV_MODES;
 for (let m = 0; m < MODES.length; m++) {
   const p = make('neon-reverb', { mode: m, level: 0.7, tone: 0.5, time: 0.6 });
-  const r = run(p, 12, burst(0.3, 0.25));
+  const r = run(p, 12, guitarBurst(GB_AMP, 0.25));
   const early = rms(r.L, Math.floor(0.3 * SR), Math.floor(0.8 * SR));
   const late = rms(r.L, Math.floor(10 * SR), Math.floor(12 * SR));
   // DYNAMIC is still releasing its ducking right after the burst, so its early tail is quieter.
@@ -488,9 +510,6 @@ for (let m = 0; m < MODES.length; m++) {
   const p = make('neon-reverb', { mode: 1, level: 0.7, time: 0.7 });
   const r = run(p, 3, burst(0.3, 0.2), (t) => { if (t >= 0.5 && p.engaged) send(p, { type: 'engaged', value: false }); });
   check(rms(r.L, 1.0 * SR, 1.5 * SR) > 1e-3, 'Reverb tail rings out after bypass');
-  const q = make('neon-reverb', { mode: 1 }, false);
-  const rq = run(q, 0.5, sine(500, 0.2));
-  check(rq.L.every((v, i) => Math.abs(v - Math.fround(sine(500, 0.2)(i))) < 1e-6), 'Reverb bypass passes dry untouched');
 }
 // ------------------------------------------------------------------ tremolo
 {
@@ -513,9 +532,118 @@ for (let m = 0; m < MODES.length; m++) {
   const r = run(p, 3, sine(220, 0.3), (t) => { if (t >= k * 0.2) { send(p, { type: 'param', name: 'wave', value: ['SINE', 'SQR', 'OPTO'][k % 3] }); k++; } });
   let j = 0; for (let i = 1; i < r.L.length; i++) j = Math.max(j, Math.abs(r.L[i] - r.L[i - 1]));
   check(finite(r.L) && j < 0.02, 'Tremolo shape switching is click-safe', `max step ${j.toFixed(4)} (the sine alone steps ${(2 * Math.PI * 220 / SR * 0.3).toFixed(4)})`);
-  const q = make('neon-trem', { depth: 1 }, false);
-  const rq = run(q, 0.5, sine(500, 0.2));
-  check(rq.L.every((v, i) => Math.abs(v - Math.fround(sine(500, 0.2)(i))) < 1e-6), 'Tremolo bypass passes dry untouched');
+}
+
+// ------------------------------------------------------------------ compressor
+{
+  // A 20 dB spread of input levels comes out much narrower, more so with more SUSTAIN.
+  const out = (sus, amp) => dB(rms(run(make('neon-comp', { sustain: sus, blend: 1 }), 1, sine(440, amp)).L, SR / 2) / (amp / Math.SQRT2)) + dB(amp / Math.SQRT2);
+  const spread = (sus) => out(sus, 0.3) - out(sus, 0.03);
+  const s0 = spread(0), s5 = spread(0.5), s10 = spread(1);
+  check(s0 < 18 && s5 < 6 && s10 < 3 && s10 < s5 && s5 < s0, 'Compressor narrows a 20 dB spread, more with SUSTAIN',
+    `out spread ${s0.toFixed(1)} / ${s5.toFixed(1)} / ${s10.toFixed(1)} dB at SUSTAIN 0 / 5 / 10`);
+  // Default knobs: a picked note comes out near bypass level, and its tail holds up longer.
+  const note = pluck(196, 0.3), dry = Float32Array.from({ length: 2 * SR }, (_, i) => note(i));
+  const r = run(make('neon-comp', {}), 2, note);
+  const lv = dB(rms(r.L) / rms(dry));
+  const decay = (a) => dB(rms(a, 1.2 * SR, 1.4 * SR) / rms(a, 0.02 * SR, 0.2 * SR));
+  check(finite(r.L) && Math.abs(lv) < 2 && decay(r.L) > decay(dry) + 6, 'Compressor at noon matches bypass level and adds sustain',
+    `${lv.toFixed(1)} dB vs bypass; tail ${decay(dry).toFixed(1)} → ${decay(r.L).toFixed(1)} dB`);
+  // Everything up, a full-scale input: bounded, no NaN.
+  const ex = run(make('neon-comp', { sustain: 1, level: 1, blend: 1 }), 1, (i) => (i % 9973 < 5000 ? Math.sin(i * 0.05) : 0.001 * Math.sin(i * 0.05)));
+  check(finite(ex.L) && peak(ex.L) <= 1, 'Compressor stays bounded at extreme settings', `peak ${peak(ex.L).toFixed(3)}`);
+  // Knob moves while playing don't click.
+  const p = make('neon-comp', {});
+  let k = 0;
+  const rm = run(p, 3, sine(220, 0.3), (t) => { if (t >= k * 0.15) { const v = k % 2; send(p, { type: 'param', name: ['sustain', 'level', 'blend'][k % 3], value: v }); k++; } });
+  let j = 0; for (let i = SR / 2; i < rm.L.length; i++) j = Math.max(j, Math.abs(rm.L[i] - rm.L[i - 1]));
+  check(finite(rm.L) && j < 0.12, 'Compressor knob moves are click-safe', `max step ${j.toFixed(3)}`);
+  // A fresh pick comes out no hotter than the note it starts, relative to the input (no make-up
+  // spike before the gain clamps down), and stays off the ceiling. 2026-11-15 review, finding 1.
+  const onset = (params, amp) => {
+    // Sized to the whole blocks run() renders (at 44.1 kHz one second is 44,160 samples, and reading
+    // past a 44,100-long input fed NaN into the last block).
+    const nt = pluck(110, amp), inp = Float32Array.from({ length: Math.ceil(SR / BLOCK) * BLOCK }, (_, i) => nt(i));
+    const o = run(make('neon-comp', params), 1, (i) => inp[i]).L;
+    const pk = (a) => peak(a.subarray(0, 0.01 * SR));
+    const over = dB(pk(o) / pk(inp)) - dB(rms(o, 0.3 * SR, 0.5 * SR) / rms(inp, 0.3 * SR, 0.5 * SR));
+    return { over, hot: o.some((v) => Math.abs(v) > 0.9), ok: finite(o) };
+  };
+  const firm = onset({}, 0.3), soft = onset({ sustain: 1, blend: 1 }, 0.05);
+  check(firm.ok && soft.ok && firm.over < 2 && soft.over < 4 && !firm.hot && !soft.hot, 'Compressor pick onset does not spike',
+    `onset over steady ${firm.over.toFixed(1)} dB firm at noon, ${soft.over.toFixed(1)} dB soft at SUSTAIN 10`);
+  // Switching off while playing crossfades without a click.
+  const xp = make('neon-comp', { sustain: 1, level: 1, blend: 1 });
+  const rx = run(xp, 1, sine(220, 0.1), (t) => { if (t >= 0.5 && xp.engaged) send(xp, { type: 'engaged', value: false }); });
+  let jx = 0; for (let i = 0.3 * SR; i < rx.L.length; i++) jx = Math.max(jx, Math.abs(rx.L[i] - rx.L[i - 1]));
+  check(finite(rx.L) && jx < 0.12, 'Compressor switching off while playing is click-safe', `max step ${jx.toFixed(3)}`);
+  // Different left and right signals, and a NaN/Infinity sample on the way in: both channels get
+  // the same gain, and the pedal recovers at once instead of latching on NaN.
+  const lr = (bad) => {
+    const pr = make('neon-comp', { blend: 1 }), N = Math.ceil(SR / 2 / BLOCK) * BLOCK, oL = new Float32Array(N), oR = new Float32Array(N), gL = [], gR = [];
+    const a = new Float32Array(BLOCK), b = new Float32Array(BLOCK), x = new Float32Array(BLOCK), y = new Float32Array(BLOCK);
+    for (let s = 0; s < N; s += BLOCK) {
+      for (let i = 0; i < BLOCK; i++) { a[i] = sine(220, 0.3)(s + i); b[i] = sine(330, 0.05)(s + i); }
+      if (bad && s === 0.1 * SR - (0.1 * SR) % BLOCK) { a[3] = NaN; b[7] = Infinity; }
+      pr.process([[a, b]], [[x, y]]); oL.set(x, s); oR.set(y, s);
+      for (let i = 0; i < BLOCK; i++) if (s > 0.3 * SR && Math.abs(a[i]) > 0.1 && Math.abs(b[i]) > 0.02) { gL.push(x[i] / a[i]); gR.push(y[i] / b[i]); }
+    }
+    return { oL, oR, d: Math.max(...gL.map((g, i) => Math.abs(g - gR[i]))) };
+  };
+  const clean = lr(false), hit = lr(true);
+  let nd = 0; for (let i = 0.2 * SR; i < clean.oL.length; i++) nd = Math.max(nd, Math.abs(hit.oL[i] - clean.oL[i]), Math.abs(hit.oR[i] - clean.oR[i]));
+  check(clean.d < 1e-4, 'Compressor applies one gain to different left and right signals', `max gain difference ${clean.d.toExponential(1)}`);
+  check(finite(hit.oL.subarray(0.11 * SR)) && finite(hit.oR.subarray(0.11 * SR)) && nd < 0.01, 'Compressor recovers from a NaN or Infinity input sample',
+    `max difference from a clean twin ${nd.toFixed(4)} after 0.2 s`);
+}
+
+// ------------------------------------------------------------------ octave
+{
+  // Energy at a frequency over a window (Goertzel), for comparing the octave with the note.
+  const amp = (a, f, from, to) => Math.sqrt(Math.max(0, tonePower(a, f, from, to))) / (to - from);
+  const from = Math.floor(0.2 * SR), to = SR;
+  let worst1 = Infinity, worst2 = Infinity;
+  for (const f of [82.4, 110, 196, 330, 494, 660]) {
+    const note = (i) => 0.2 * Math.exp(-i / (SR * 0.8)) * (Math.sin(2 * Math.PI * f * i / SR) + 0.5 * Math.sin(4 * Math.PI * f * i / SR) + 0.25 * Math.sin(6 * Math.PI * f * i / SR));
+    const o1 = run(make('neon-octave', { direct: 0, oct1: 1, oct2: 0 }), 1, note).L;
+    worst1 = Math.min(worst1, dB(amp(o1, f / 2, from, to) / amp(o1, f, from, to)));
+    if (f >= 110) {
+      const o2 = run(make('neon-octave', { direct: 0, oct1: 0, oct2: 1 }), 1, note).L;
+      worst2 = Math.min(worst2, dB(amp(o2, f / 4, from, to) / amp(o2, f / 2, from, to)));
+    }
+  }
+  check(worst1 > 30 && worst2 > 20, 'Octave tracks one and two octaves down, low E to the 12th fret',
+    `OCT 1 sub over the note by at least ${worst1.toFixed(1)} dB, OCT 2 over OCT 1 by ${worst2.toFixed(1)} dB`);
+  // Polarity flips only at zero crossings, so at unity level the sub-octave is never steeper than
+  // the note itself (a flip away from zero would jump by up to twice the note's peak).
+  const maxStep = (a) => { let m = 0; for (let i = 1; i < a.length; i++) m = Math.max(m, Math.abs(a[i] - a[i - 1])); return m; };
+  const dryStep = maxStep(Float32Array.from({ length: 2 * SR }, (_, i) => pluck(110, 0.3)(i)));
+  const sub = run(make('neon-octave', { direct: 0, oct1: 0.7, oct2: 0 }), 2, pluck(110, 0.3)).L;
+  const sub2 = run(make('neon-octave', { direct: 0, oct1: 0, oct2: 0.7 }), 2, pluck(110, 0.3)).L;
+  const js = Math.max(maxStep(sub), maxStep(sub2)) / dryStep;
+  check(finite(sub) && finite(sub2) && js < 1, 'Octave flips are click-free', `steepest step ${js.toFixed(2)}x the dry note's`);
+  const ex = run(make('neon-octave', { direct: 1, oct1: 1, oct2: 1 }), 1, noise(1));
+  check(finite(ex.L) && peak(ex.L) <= 1, 'Octave stays bounded at extreme settings', `peak ${peak(ex.L).toFixed(3)}`);
+  // Knobs jump between 3 and 7 every 0.2 s while a note rings. All three at 7 is about 3x unity in
+  // total, so a smooth output stays under ~3x the dry note's steepest step; an unsmoothed gain jump
+  // or a flip away from zero goes well past it (review 2026-11-22, finding 2).
+  const p = make('neon-octave', {});
+  let k = 0;
+  const rm = run(p, 2, pluck(110, 0.2), (t) => { if (t >= k * 0.2) { send(p, { type: 'param', name: ['direct', 'oct1', 'oct2'][k % 3], value: k % 2 ? 0.7 : 0.3 }); k++; } });
+  const jm = maxStep(rm.L) / (dryStep * 0.2 / 0.3);
+  check(finite(rm.L) && jm < 3.2, 'Octave knob moves are click-safe', `steepest step ${jm.toFixed(2)}x the dry note's`);
+  // A fading high note: once the detector loses it, the octaves fade out instead of the note
+  // coming through at its own pitch from a frozen flip-flop (finding 3).
+  const hiNote = (i) => 0.2 * Math.exp(-i / (SR * 0.5)) * Math.sin(2 * Math.PI * 1047 * i / SR);
+  const fade = run(make('neon-octave', { direct: 0, oct1: 0.7, oct2: 0.7 }), 4, hiNote).L;
+  const tail = rms(fade, 2 * SR, 4 * SR), early = rms(fade, Math.round(0.2 * SR), SR);
+  check(early > 1e-3 && tail < 1e-6, 'Octave fades out under a dying high note (no unison copy)',
+    `octaves ${dB(early).toFixed(0)} dB while tracking, ${dB(tail).toFixed(0)} dB once lost (input -49 to -66 dBFS)`);
+  // A NaN or a huge sample is ignored, so neither latches the filters or the detector (finding 6).
+  const twin = run(make('neon-octave', {}), 1, pluck(110, 0.2)).L;
+  const hit = run(make('neon-octave', {}), 1, (i) => (i === 1000 ? NaN : i === 2000 ? 1e30 : pluck(110, 0.2)(i))).L;
+  const nd = hit.subarray(0.3 * SR).reduce((m, v, i) => Math.max(m, Math.abs(v - twin[0.3 * SR + i])), 0);
+  check(finite(hit.subarray(0.3 * SR)) && nd < 0.01, 'Octave recovers from a NaN or huge input sample', `max difference from a clean twin ${nd.toFixed(4)} after 0.3 s`);
 }
 
 // ------------------------------------------------------------------ tape echo
@@ -545,9 +673,6 @@ for (let m = 0; m < MODES.length; m++) {
   let j = 0; for (let i = 1; i < r.L.length; i++) j = Math.max(j, Math.abs(r.L[i] - r.L[i - 1]));
   check(finite(r.L) && j < 0.25, 'Tape echo TIME changes are click-safe', `max step ${j.toFixed(3)}`);
   // Bypass: dry untouched from the start; repeats already on the tape ring out.
-  const q = make('neon-echo', { mix: 1 }, false);
-  const rq = run(q, 0.5, sine(500, 0.2));
-  check(rq.L.every((v, i) => Math.abs(v - Math.fround(sine(500, 0.2)(i))) < 1e-6), 'Tape echo bypass passes dry untouched');
   // Playing until 0.5 s, bypassed at 0.3 s: the repeats of what went onto the tape before 0.3 s
   // carry on after the playing stops.
   const e = make('neon-echo', { time: 0.4, repeats: 0.5, mix: 0.6 });
@@ -573,9 +698,6 @@ for (let m = 0; m < MODES.length; m++) {
   const r = run(p, 3, sine(220, 0.3), (t) => { if (t >= k * 0.25) { send(p, { type: 'param', name: 'mode', value: k % 2 ? 'BLOCK' : 'SCRIPT' }); k++; } });
   let j = 0; for (let i = 1; i < r.L.length; i++) j = Math.max(j, Math.abs(r.L[i] - r.L[i - 1]));
   check(finite(r.L) && j < 0.05, 'Phaser SCRIPT/BLOCK switching is click-safe', `max step ${j.toFixed(4)}`);
-  const q = make('neon-phaser', {}, false);
-  const rq = run(q, 0.5, sine(500, 0.2));
-  check(rq.L.every((v, i) => Math.abs(v - Math.fround(sine(500, 0.2)(i))) < 1e-6), 'Phaser bypass passes dry untouched');
 }
 
 // ------------------------------------------------------------------ flanger
@@ -598,13 +720,10 @@ for (let m = 0; m < MODES.length; m++) {
   const rm = run(p, 4, pluck(196, 0.3), (t) => { if (t >= k * 0.5) { send(p, { type: 'param', name: 'manual', value: k % 2 }); k++; } });
   let j = 0; for (let i = 1; i < rm.L.length; i++) j = Math.max(j, Math.abs(rm.L[i] - rm.L[i - 1]));
   check(finite(rm.L) && j < 0.3, 'Flanger MANUAL moves are click-safe', `max step ${j.toFixed(3)}`);
-  const q = make('neon-flanger', {}, false);
-  const rq = run(q, 0.5, sine(500, 0.2));
-  check(rq.L.every((v, i) => Math.abs(v - Math.fround(sine(500, 0.2)(i))) < 1e-6), 'Flanger bypass passes dry untouched');
 }
 {
   // Full default chain, the way the app wires it, for a CPU budget.
-  const chain = [make('neon-input', { hum: 60, gate: -65 }), make('neon-wah'), make('neon-fuzz', { fuzz: 0.8 }),
+  const chain = [make('neon-input', { hum: 60, gate: -65 }), make('neon-comp'), make('neon-octave'), make('neon-wah'), make('neon-fuzz', { fuzz: 0.8 }),
     make('neon-ts', { drive: 0.5 }), make('neon-vibe'), make('neon-phaser'), make('neon-flanger'), make('neon-amp', { gain: 0.8 }),
     make('neon-chorus', { mode: 'C' }), make('neon-trem'), make('neon-echo'), make('neon-reverb', { mode: 6 })];
   const secs = 10, total = secs * SR;
@@ -617,7 +736,7 @@ for (let m = 0; m < MODES.length; m++) {
   }
   const ms = Number(process.hrtime.bigint() - t0) / 1e6;
   const pct = ms / (secs * 1000) * 100;
-  check(pct < 35, 'Full chain (input + all eleven pedals) fits the real-time budget', `${pct.toFixed(1)}% of one core (${(ms / (total / BLOCK) * 1000).toFixed(0)} µs per 128-sample block, budget ${(BLOCK / SR * 1e6).toFixed(0)} µs)`);
+  check(pct < 35, 'Full chain (input + all thirteen pedals) fits the real-time budget', `${pct.toFixed(1)}% of one core (${(ms / (total / BLOCK) * 1000).toFixed(0)} µs per 128-sample block, budget ${(BLOCK / SR * 1e6).toFixed(0)} µs)`);
 }
 {
   // Pickup selector: a neck and a bridge pickup must still sound different through drive. Synthetic
@@ -650,7 +769,7 @@ for (let m = 0; m < MODES.length; m++) {
   // Behind a closed gate every pedal sees exact zeros. Decaying filter states must not turn
   // into denormals, which once made the TS and amp ~5x slower and choked the audio thread.
   const cost = (p, secs, gen) => { const t0 = process.hrtime.bigint(); run(p, secs, gen); return Number(process.hrtime.bigint() - t0); };
-  for (const [name, params] of [['neon-input', { gate: -60 }], ['neon-wah', {}], ['neon-fuzz', {}], ['neon-ts', {}],
+  for (const [name, params] of [['neon-input', { gate: -60 }], ['neon-comp', { sustain: 1 }], ['neon-octave', { oct2: 1 }], ['neon-wah', {}], ['neon-fuzz', {}], ['neon-ts', {}],
     ['neon-vibe', {}], ['neon-chorus', {}], ['neon-trem', {}], ['neon-echo', { repeats: 0.8 }], ['neon-phaser', { mode: 'BLOCK' }], ['neon-flanger', { res: 0.8 }], ['neon-amp', { voice: 'FENDER' }], ['neon-reverb', { mode: 3 }]]) {
     const p = make(name, params);
     const playing = cost(p, 2, pluck(110, 0.3));
@@ -658,6 +777,187 @@ for (let m = 0; m < MODES.length; m++) {
     const silent = cost(p, 2, () => 0);
     check(silent < playing * 1.5, `${name} stays cheap in silence (no denormal slowdown)`, `${(silent / playing).toFixed(2)}x the cost of playing`);
   }
+}
+{
+  // The whole board is always loaded, so a bypassed pedal must go idle (cost next to nothing)
+  // once its output has settled to the dry signal, and stay exact while idle.
+  const cost = (p, secs, gen) => { const t0 = process.hrtime.bigint(); const r = run(p, secs, gen); return [Number(process.hrtime.bigint() - t0), r]; };
+  const allTypes = ['neon-comp', 'neon-octave', 'neon-wah', 'neon-fuzz', 'neon-ts', 'neon-vibe', 'neon-phaser', 'neon-flanger', 'neon-amp', 'neon-chorus', 'neon-trem', 'neon-echo', 'neon-reverb'];
+  // The signal is computed once up front, so the timing measures the pedals, not the test signal
+  // (generating it per sample was most of the idle figure and pushed it toward the limit).
+  const sigIn = Float32Array.from({ length: Math.ceil(SR / BLOCK) * BLOCK }, (_, i) => pluck(110, 0.3)(i));
+  const gen = (i) => sigIn[i];
+  let on = 0, off = 0, exact = true;
+  for (const name of allTypes) {
+    on += cost(make(name, {}), 1, gen)[0];
+    const [t, r] = cost(make(name, {}, false), 1, gen);
+    off += t;
+    exact = exact && r.L.every((v, i) => v === sigIn[i]);
+  }
+  check(off < on * 0.2 && exact, 'Bypassed pedals idle: dry passes exactly, at a fraction of the cost',
+    `all 13 bypassed cost ${(off / on * 100).toFixed(1)}% of all 13 engaged`);
+
+  // A reverb switched off mid-tail keeps ringing, then idles; switched back on into silence,
+  // it must not replay the old tail it stopped with.
+  const rv = make('neon-reverb', { mode: 1, level: 0.8, time: 1 });
+  run(rv, 0.5, burst(0.3, 0.3));
+  send(rv, { type: 'engaged', value: false });
+  const ring = run(rv, 1, () => 0);
+  check(rms(ring.L, 0, 0.3 * SR) > 1e-3, 'Reverb tail still spills over after bypass');
+  run(rv, 30, () => 0);
+  // Time process() alone: the run() harness's own signal generation would swamp an idle pedal.
+  const blockCost = (p, secs) => {
+    const a = Float32Array.from({ length: BLOCK }, (_, i) => 0.2 * Math.sin(i / 7)), o = [new Float32Array(BLOCK), new Float32Array(BLOCK)];
+    const t0 = process.hrtime.bigint();
+    for (let b = 0; b < secs * SR / BLOCK; b++) p.process([[a, a]], [o]);
+    return Number(process.hrtime.bigint() - t0);
+  };
+  const idleCost = blockCost(rv, 2);
+  send(rv, { type: 'engaged', value: true });
+  const back = run(rv, 1, () => 0);
+  const liveCost = blockCost(rv, 2);
+  check(idleCost < liveCost * 0.2, 'Reverb goes idle once its tail has died away', `${(idleCost / liveCost * 100).toFixed(1)}% of engaged cost`);
+  check(peak(back.L) < 1e-3, 'Reverb switched back on does not replay an old tail', `${dB(peak(back.L)).toFixed(1)} dBFS`);
+
+  // Going idle must be inaudible: a bypassed echo and reverb ring out the same as twins that
+  // are never allowed to idle, all the way down.
+  for (const [name, params] of [['neon-echo', { time: 0.9, repeats: 0.7, mix: 0.6 }], ['neon-reverb', { mode: 6, level: 1, time: 1 }]]) {
+    const a = make(name, params), b = make(name, params);
+    const note = pluck(220, 0.3), play = (i) => (i < 0.3 * SR ? note(i) : 0), off = (p) => (t) => { if (t >= 0.4 && p.engaged) send(p, { type: 'engaged', value: false }); };
+    const ra = run(a, 25, play, off(a));
+    const rb = run(b, 25, play, (t) => { off(b)(t); b.quiet = 0; });
+    let d = 0; for (let i = 0; i < ra.L.length; i++) d = Math.max(d, Math.abs(ra.L[i] - rb.L[i]));
+    check(d < 2e-5 && a.quiet >= SR, `${name} going idle after bypass is inaudible`, `max difference ${dB(d).toFixed(0)} dBFS`);
+  }
+
+  // Waking from idle: a preset sends new params, then switches the pedal on. Nothing ran while it
+  // was idle, so every knob must land on its new value at once (no glide from the old one: an echo
+  // TIME glide bends the first repeats), and delay lines must not replay audio from when it idled.
+  const SNAP = { 'neon-echo': { time: 0.1, repeats: 0.6, mix: 0.6 }, 'neon-chorus': { rate: 0.9, depth: 0.9 },
+    'neon-flanger': { manual: 0.9, depth: 0.1, rate: 0.9, res: 0.9 }, 'neon-ts': { level: 0.9, drive: 0.9 },
+    'neon-trem': { wave: 'SQR', rate: 0.9, depth: 0.9 }, 'neon-amp': { volume: 0.9, voice: 'HIWATT' },
+    'neon-reverb': { level: 0.9, mode: 6 }, 'neon-vibe': { speed: 0.9, intensity: 0.2 }, 'neon-phaser': { speed: 0.9, mode: 'BLOCK' },
+    'neon-fuzz': { volume: 0.9, voice: 'SI' }, 'neon-wah': { pos: 0.9, mode: 'FIX' },
+    'neon-comp': { sustain: 0.9, level: 0.9, blend: 0.2 }, 'neon-octave': { direct: 0.2, oct1: 0.9, oct2: 0.9 } };
+  const smoothers = (p) => { const out = []; const seen = new Set();
+    const walk = (o, d) => { if (!o || typeof o !== 'object' || d > 4 || seen.has(o) || ArrayBuffer.isView(o)) return; seen.add(o);
+      if (o.constructor && o.constructor.name === 'Smoother') { if (o !== p.mix) out.push(o); return; }
+      for (const k of Object.keys(o)) if (k !== 'port') walk(o[k], d + 1); };
+    walk(p, 0); return out; };
+  // Play, bypass, keep playing (it idles on a live signal too), stop, then a preset's params and the
+  // switch-on, into silence. `never` = a twin that is never allowed to idle: the reference.
+  // The woken pedal stays silent until it has really gone idle (a reverb tail takes ~10 s); the twin
+  // waits exactly as long.
+  const wakeRun = (name, params, never, wait) => {
+    const p = make(name, {});
+    const hold = never ? () => { p.quiet = 0; } : undefined;
+    run(p, 0.5, pluck(196, 0.3), hold);
+    send(p, { type: 'engaged', value: false });
+    run(p, 2, pluck(196, 0.3), hold);
+    let waited = 0;
+    while (wait ? waited < wait : p.quiet < SR && waited < 30) { run(p, 0.5, () => 0, hold); waited += 0.5; }
+    const idle = p.quiet >= SR;
+    for (const [k, v] of Object.entries(params)) send(p, { type: 'param', name: k, value: v });
+    send(p, { type: 'engaged', value: true });
+    const landed = smoothers(p).every((s) => s === p.fade || Math.abs(s.v - s.t) <= 1e-9);
+    return { idle, waited, landed, out: run(p, 0.3, () => 0, hold).L };
+  };
+  const glides = [], stale = [];
+  let worst = -Infinity;
+  for (const [name, params] of Object.entries(SNAP)) {
+    const woken = wakeRun(name, params, false), twin = wakeRun(name, params, true, woken.waited);
+    if (!woken.idle || !woken.landed) glides.push(woken.idle ? name : `${name} (never went idle)`);
+    let d = 0; for (let i = 0; i < woken.out.length; i++) d = Math.max(d, Math.abs(woken.out[i] - twin.out[i]));
+    worst = Math.max(worst, dB(d));
+    if (dB(d) > -40) stale.push(`${name} ${dB(d).toFixed(0)} dBFS`);
+  }
+  check(!glides.length, 'Pedals woken from idle land on their new knob values at once', glides.join(', '));
+  check(!stale.length, 'Pedals woken from idle replay nothing stale (match a never-idled twin)',
+    stale.length ? stale.join('; ') : `worst difference ${worst.toFixed(0)} dBFS`);
+}
+
+// ---- Switching a pedal off while playing (review 2026-11-22, findings 1 and its follow-up)
+// A pedal created switched off starts idle and never renders, so a check built that way passes even if
+// the pedal ignores its off switch. Here each pedal is on and playing a steady note, is switched off,
+// and must then pass the guitar exactly (once its bypass fade has settled, about 70 ms, or once its echo or reverb trail has died
+// away: those spill over on purpose) and go idle. A pedal that ignores the switch fails.
+{
+  const OFF_CASES = [
+    ['neon-comp', { sustain: 1 }, 0.15], ['neon-octave', { oct1: 1, oct2: 1 }, 0.15], ['neon-wah', { mode: 'LFO' }, 0.15],
+    ['neon-fuzz', { fuzz: 1 }, 0.15], ['neon-ts', { drive: 1 }, 0.15], ['neon-vibe', {}, 0.15], ['neon-phaser', {}, 0.15],
+    ['neon-flanger', {}, 0.15], ['neon-amp', { voice: 'PLEXI', gain: 1 }, 0.15], ['neon-chorus', { mode: 'C' }, 0.15],
+    ['neon-trem', { depth: 1 }, 0.15], ['neon-echo', { mix: 1 }, 4], ['neon-reverb', { mode: 1 }, 6]]; // trails measured 2.3 and 3.4 s (2026-11-22)
+  const note = sine(330, 0.2);
+  for (const [name, params, allow] of OFF_CASES) {
+    const p = make(name, params);
+    const off = Math.round(0.5 * SR / BLOCK) * BLOCK;
+    const r = run(p, 0.5 + allow + 1.5, note, (t) => { if (t * SR >= off && p.engaged) send(p, { type: 'engaged', value: false }); });
+    let changed = 0, last = off;
+    for (let i = 0; i < r.L.length; i++) {
+      const d = Math.max(Math.abs(r.L[i] - Math.fround(note(i))), Math.abs(r.R[i] - Math.fround(note(i))));
+      if (i >= 0.1 * SR && i < off) changed = Math.max(changed, d);
+      if (i >= off && d >= 1e-6) last = i + 1;
+    }
+    const dryAfter = (last - off) / SR;
+    check(changed > 1e-3 && dryAfter <= allow && p.quiet >= SR, `${name} switched off while playing passes dry exactly, then idles`,
+      `on: differs by ${changed.toFixed(3)}; exact dry ${(dryAfter * 1000).toFixed(0)} ms after the switch (allowed ${allow * 1000}); idle ${p.quiet >= SR}`);
+  }
+}
+
+// ---- Locked presets: the owner signed these off by ear (Echoplex Lead, 2026-11-14). Their settings in
+// app.js and the sound of their whole chain are pinned, so no later DSP change alters them by accident.
+// If a check here fails, the preset's sound changed: only update the pinned values with the owner's OK.
+{
+  const appSrc = fs.readFileSync(path.join(__dirname, '..', 'app.js'), 'utf8');
+  const LOCKED = {
+    name: 'Echoplex Lead (tape echo)',
+    text: `{ name: 'Echoplex Lead (tape echo)', pedals: [
+      ['ts', true, { drive: 0.55, tone: 0.55, level: 0.6 }],
+      ['amp', true, { voice: 'PLEXI', gain: 0.6, bass: 0.55, mid: 0.65, treble: 0.55, volume: 0.5 }],
+      ['echo', true, { time: 0.62, repeats: 0.35, mix: 0.32 }],
+      ['reverb', true, { level: 0.15, tone: 0.5, time: 0.35, mode: 2 }]] },`,
+    chain: [['neon-ts', { drive: 0.55, tone: 0.55, level: 0.6 }],
+      ['neon-amp', { voice: 'PLEXI', gain: 0.6, bass: 0.55, mid: 0.65, treble: 0.55, volume: 0.5 }],
+      ['neon-echo', { time: 0.62, repeats: 0.35, mix: 0.32 }],
+      ['neon-reverb', { level: 0.15, tone: 0.5, time: 0.35, mode: 2 }]],
+    // [level 0-1.2 s, 1.2-2 s, echo tail 2-3.5 s, low band, mid band, high band], dB. From the 2026-11-14 build.
+    // The bands use one-pole filters, whose shape shifts with the sample rate, so these hold at 48 kHz only.
+    print: [-16.91, -31.53, -60.48, -24.58, -25.15, -37.29],
+    // The same output's exact (FFT) energy in 60-300 / 300-2500 / 2500-10000 Hz, dB. Rate-independent:
+    // measured 2026-11-22 at 44.1 / 48 / 96 kHz as -22.33/-22.32/-22.30, -29.41/-29.41/-29.42 and
+    // -38.82/-38.79/-38.82, so the locked sound is the same at every rate an interface may run at.
+    bands: [-22.32, -29.41, -38.79],
+  };
+  check(appSrc.includes(LOCKED.text), `${LOCKED.name}: preset settings unchanged in app.js`);
+  // A short phrase (G, B, D, held a little), then silence so the echo and plate tail are measured.
+  const notes = [196, 246.94, 293.66];
+  const input = Float32Array.from({ length: Math.round(3.5 * SR) }, (_, i) => {
+    const k = Math.floor(i / (0.4 * SR));
+    return k < notes.length ? pluck(notes[k], 0.3)(i - k * 0.4 * SR) : 0;
+  });
+  const out = series(LOCKED.chain.map(([n, p]) => make(n, p)), input);
+  const band = (lo, hi) => { // energy between lo and hi Hz, by one-pole high/low-pass
+    const a = Math.exp(-2 * Math.PI * hi / SR), b = Math.exp(-2 * Math.PI * lo / SR);
+    let l = 0, h = 0, e = 0;
+    for (const v of out) { l = v + a * (l - v); h = l + b * (h - l); const x = l - h; e += x * x; }
+    return 10 * Math.log10(e / out.length + 1e-20);
+  };
+  const print = [dB(rms(out, 0, 1.2 * SR)), dB(rms(out, 1.2 * SR, 2 * SR)), dB(rms(out, 2 * SR, 3.5 * SR)),
+    band(60, 300), band(300, 2500), band(2500, 10000)];
+  const off = print.map((v, i) => Math.abs(v - LOCKED.print[i]));
+  if (SR === 48000) {
+    check(finite(out) && off.every((d) => d < 0.1), `${LOCKED.name}: sound of the whole chain unchanged (within 0.1 dB)`,
+      `[${print.map((v) => v.toFixed(2)).join(', ')}]`);
+  } else console.log(`SKIP  ${LOCKED.name}: 48 kHz fingerprint (pinned at 48 kHz; the band check below covers ${SR} Hz)`);
+  // Exact band energies by FFT of the whole output (zero-padded), the same measure at every rate.
+  let M = 1; while (M < out.length) M <<= 1;
+  const re = new Float64Array(M), im = new Float64Array(M); re.set(out); fft(re, im);
+  const exact = (lo, hi) => { let e = 0; for (let b = Math.ceil(lo * M / SR); b <= Math.floor(hi * M / SR); b++) e += re[b] * re[b] + im[b] * im[b]; return 10 * Math.log10(2 * e / (M * out.length)); };
+  const bands = [exact(60, 300), exact(300, 2500), exact(2500, 10000)];
+  const levels = print.slice(0, 3).map((v, i) => Math.abs(v - LOCKED.print[i]));
+  check(finite(out) && bands.every((v, i) => Math.abs(v - LOCKED.bands[i]) < 0.15) && levels.every((d) => d < 0.15),
+    `${LOCKED.name}: same sound at ${SR / 1000} kHz (levels and exact bands within 0.15 dB)`,
+    `bands [${bands.map((v) => v.toFixed(2)).join(', ')}], levels [${print.slice(0, 3).map((v) => v.toFixed(2)).join(', ')}]`);
 }
 
 // ---- Loop recorder: segments land on exact frames of the audio clock, whatever the block edges

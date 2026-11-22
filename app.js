@@ -23,17 +23,34 @@
 
   const REVERB_MODES = ['ROOM', 'HALL', 'PLATE', 'SPRING', 'MODULATE', '+DELAY', 'SHIMMER', 'DYNAMIC'];
   const PEDALS = {
+    comp: {
+      title: 'FLUX COMP', sub: 'DYNA COMP STYLE COMPRESSOR', proc: 'neon-comp',
+      accent: '#ff3b5c', w: 176, h: 300, footswitch: 'round',
+      knobs: [
+        { k: 'sustain', label: 'SUSTAIN', def: 0.5, tip: 'How much it evens you out: loud picking comes down, quiet notes and fading tails come up, so notes ring longer. Up high it squashes, the glassy country sound.' },
+        { k: 'level', label: 'LEVEL', def: 0.5, tip: 'Output level. Noon matches bypass.' },
+        { k: 'blend', label: 'BLEND', def: 0.7, tip: 'Mix of compressed and dry. Below full lets your natural pick attack through on top of the sustain.' }],
+    },
+    octave: {
+      title: 'DARK MATTER', sub: 'OC-2 STYLE OCTAVE', proc: 'neon-octave',
+      accent: '#3dffd8', w: 176, h: 300, footswitch: 'round',
+      knobs: [
+        { k: 'direct', label: 'DIRECT', def: 0.7, tip: 'Your normal guitar. 7 is its usual level; turn it right down for a synth-bass sound.' },
+        { k: 'oct1', label: 'OCT 1', def: 0.5, tip: 'One octave down: the thick 311 / funk sub. Play single notes; chords make it warble.' },
+        { k: 'oct2', label: 'OCT 2', def: 0, tip: 'Two octaves down: a deep rumble, best on the higher strings.' }],
+    },
     wah: {
       title: 'VOLT WAH', sub: 'CRY BABY STYLE WAH', proc: 'neon-wah',
       accent: '#ffb02e', w: 176, h: 300, footswitch: 'round', sweep: true,
       knobs: [
-        { k: 'pos', label: 'POSITION', def: 0.15, tip: 'Where the pedal sits, heel (dark) to toe (bright). AUTO starts its sweep here; FIXED stays here.' },
-        { k: 'sens', label: 'SENS', def: 0.5, tip: 'AUTO: how easily your picking opens the wah.' },
-        { k: 'rate', label: 'RATE', def: 0.35, tip: 'LFO: how fast the wah sweeps by itself.' }],
+        { k: 'pos', label: 'POSITION', def: 0.15, tip: 'Where the pedal sits, heel (dark) to toe (bright). AUTO and NOTE never go below it; FIXED stays here.' },
+        { k: 'sens', label: 'SENS', def: 0.5, tip: 'AUTO: how easily your picking opens the wah. NOTE: how far high notes push it open.' },
+        { k: 'rate', label: 'RATE', def: 0.35, tip: 'LFO: how fast the wah sweeps by itself. NOTE: how quickly it follows a new note.' }],
       modes: { k: 'mode', kind: 'switch', def: 'AUTO', options: [
         ['AUTO', 'AUTO', 'Your picking opens the wah: dig in for more quack.'],
         ['LFO', 'LFO', 'The wah sweeps by itself at RATE.'],
-        ['FIX', 'FIXED', 'A parked wah at POSITION: the vocal "woman tone" honk.']] },
+        ['FIX', 'FIXED', 'A parked wah at POSITION: the vocal "woman tone" honk.'],
+        ['NOTE', 'NOTE', 'The wah follows the notes you play: higher notes open it, a held note holds it there, and between phrases it settles back to POSITION. Best for single-note lines.']] },
     },
     fuzz: {
       title: 'PLASMA FUZZ', sub: 'FUZZ FACE STYLE FUZZ', proc: 'neon-fuzz',
@@ -112,7 +129,7 @@
         { k: 'mix', label: 'MIX', def: 0.35, tip: 'How loud the repeats are. The dry guitar stays at full level.' }],
     },
     amp: {
-      title: 'NEON STACK', sub: 'PLEXI · HIWATT · FENDER STYLE AMP', proc: 'neon-amp',
+      title: 'NEON STACK', sub: 'PLEXI · HIWATT · FENDER · MESA STYLE AMP', proc: 'neon-amp',
       accent: '#ff6a3d', w: 290, h: 300, footswitch: 'toggle', grille: true,
       knobs: [
         { k: 'gain', label: 'GAIN', def: 0.5, tip: 'Below noon: clean. Above: crunch up to full drive.' },
@@ -123,7 +140,8 @@
       modes: { k: 'voice', kind: 'switch', def: 'PLEXI', options: [
         ['PLEXI', 'PLEXI', 'Marshall Plexi: Hendrix, Zeppelin, Cream.'],
         ['HIWATT', 'HIWATT', 'Hiwatt: huge, loud and clear. The Who.'],
-        ['FENDER', 'FENDER', 'Fender Blackface: sparkly cleans. Put the SCREAMER in front for SRV.']] },
+        ['FENDER', 'FENDER', 'Fender Blackface: sparkly cleans. Put the SCREAMER in front for SRV.'],
+        ['MESA', 'MESA', 'Mesa/Boogie: tight, bright cleans that take echo well, and a thick, focused high gain. 311.']] },
     },
     reverb: {
       title: 'VOID VERB', sub: 'RV-6 STYLE REVERB', proc: 'neon-reverb',
@@ -135,6 +153,16 @@
       modes: { k: 'mode', kind: 'rotary', def: 1, options: REVERB_MODES },
     },
   };
+
+  // The usual place for each pedal, guitar to amp: the compressor first, so it evens out the
+  // guitar itself; the octave next, so it hears a clean, single note; then wah; fuzz straight after it (as on Hendrix's board); then overdrive; the
+  // vibe, phaser and flanger in front of the amp (as on Van Halen's board); the amp; then what would
+  // sit in its effects loop: chorus, tremolo, echo, and reverb last. The board opens with one of
+  // each, in this order.
+  const CHAIN_ORDER = ['comp', 'octave', 'wah', 'fuzz', 'ts', 'vibe', 'phaser', 'flanger', 'amp', 'chorus', 'trem', 'echo', 'reverb'];
+  // The types the board had before newer ones were added (see loadBoard).
+  const FIRST_TYPES = ['wah', 'fuzz', 'ts', 'vibe', 'phaser', 'flanger', 'amp', 'chorus', 'trem', 'echo', 'reverb'];
+  const MAX_PEDALS = 24; // a tampered save or preset can't freeze the tab with thousands
 
   // Saved boards and presets come back from storage, which anything on the same origin can write
   // (every file:// page shares one in Chrome), so only known pedal types and in-range values get in.
@@ -183,8 +211,10 @@
       ['ts', false, { drive: 0.3, tone: 0.55, level: 0.5 }],
       ['chorus', false, { rate: 0.3, depth: 0.4, mode: 'S' }],
       ['reverb', true, { level: 0.25, tone: 0.55, time: 0.3, mode: 0 }]] },
-    { name: 'Wah Lead (LFO sweep)', pedals: [
-      ['wah', true, { mode: 'LFO', pos: 0.1, sens: 0.5, rate: 0.45 }],
+    // The wah follows the notes (owner request 2026-11-14): never below a raised floor, opening with
+    // higher notes and holding on sustained ones. Was an LFO sweep from 0.1.
+    { name: 'Wah Lead (follows the notes)', pedals: [
+      ['wah', true, { mode: 'NOTE', pos: 0.3, sens: 0.5, rate: 0.55 }],
       ['ts', true, { drive: 0.7, tone: 0.5, level: 0.55 }],
       ['reverb', true, { level: 0.3, tone: 0.5, time: 0.5, mode: 1 }]] },
     { name: 'Plexi Crunch (Zeppelin)', pedals: [
@@ -194,11 +224,19 @@
     { name: 'Hiwatt Roar (The Who)', pedals: [
       ['amp', true, { voice: 'HIWATT', gain: 0.75, bass: 0.6, mid: 0.65, treble: 0.55, volume: 0.5 }],
       ['reverb', true, { level: 0.2, tone: 0.5, time: 0.3, mode: 0 }]] },
+    // Slow "midnight" Texas blues (owner reference 2026-11-15, second pass): a Fender at the edge of breakup
+    // with the SCREAMER as a light, bright boost, and a medium spring. Less drive and brighter than the first
+    // pass, and no echo or plate, so it doesn't drift toward Echoplex Lead. Neck or neck+middle on a Strat.
+    // The echo stays set up but off: one tap adds a faint ~400 ms repeat. FLUX COMP in front (owner
+    // request, same day) evens the picking and holds notes up without adding drive; BLEND keeps the
+    // pick attack. Its LEVEL sits a touch under noon so it doesn't push the SCREAMER harder.
     { name: 'Texas Blues (SRV)', pedals: [
+      ['comp', true, { sustain: 0.5, level: 0.45, blend: 0.65 }],
       ['wah', false, { mode: 'AUTO', pos: 0.15, sens: 0.5, rate: 0.35 }],
-      ['ts', true, { drive: 0.2, tone: 0.55, level: 0.85 }],
-      ['amp', true, { voice: 'FENDER', gain: 0.55, bass: 0.45, mid: 0.45, treble: 0.6, volume: 0.5 }],
-      ['reverb', true, { level: 0.3, tone: 0.5, time: 0.35, mode: 3 }]] },
+      ['ts', true, { drive: 0.22, tone: 0.6, level: 0.8 }],
+      ['amp', true, { voice: 'FENDER', gain: 0.45, bass: 0.5, mid: 0.5, treble: 0.62, volume: 0.5 }],
+      ['echo', false, { time: 0.5, repeats: 0.25, mix: 0.2 }],
+      ['reverb', true, { level: 0.3, tone: 0.55, time: 0.5, mode: 3 }]] },
     { name: 'Clean Fender + Spring', pedals: [
       ['chorus', false, { rate: 0.25, depth: 0.4, mode: 'C' }],
       ['amp', true, { voice: 'FENDER', gain: 0.15, bass: 0.5, mid: 0.45, treble: 0.6, volume: 0.6 }],
@@ -245,6 +283,9 @@
       ['reverb', true, { level: 0.45, tone: 0.55, time: 0.55, mode: 3 }]] },
     // Tape-echo lead, a starting point for GHOST ECHO: a pushed Plexi with ~290 ms repeats that
     // sit behind the notes, and only a touch of reverb so the echoes stay clear.
+    // LOCKED (owner signed it off by ear, 2026-11-14): tests/dsp-test.js pins these settings and the
+    // sound of this chain (TS, PLEXI amp, echo, plate). Don't retune it, or the PLEXI voice it shares
+    // with Plexi Crunch, without the owner's OK.
     { name: 'Echoplex Lead (tape echo)', pedals: [
       ['ts', true, { drive: 0.55, tone: 0.55, level: 0.6 }],
       ['amp', true, { voice: 'PLEXI', gain: 0.6, bass: 0.55, mid: 0.65, treble: 0.55, volume: 0.5 }],
@@ -260,12 +301,70 @@
       ['flanger', true, { manual: 0.45, depth: 0.7, rate: 0.22, res: 0.65 }],
       ['amp', true, { voice: 'FENDER', gain: 0.4, bass: 0.5, mid: 0.5, treble: 0.6, volume: 0.55 }],
       ['reverb', true, { level: 0.22, tone: 0.5, time: 0.4, mode: 2 }]] },
+    // 311, "Use of Time" (Transistor, 1997; owner reference: the 311 Day 2021 live version). A
+    // starting point, not matched to the recording by ear: Tim Mahoney's documented live sound is a
+    // clean Mesa with a studio delay in the amp's loop. Second pass (owner, same day: echo too long,
+    // the guitar sat too far back, the live tone is cleaner): a cleaner MESA with firmer mids so it
+    // sits up front, a short ~290 ms echo with a couple of quiet repeats (felt more than heard), a
+    // small room, and the chorus set up but off. Third pass (owner against the recording, "close-ish":
+    // his PRS sounds smoother, with a little less distortion than the Strat here, and a subtle spacey
+    // shimmer): GAIN a notch lower, a touch less treble, a faint slow chorus and a low MODULATE
+    // reverb in place of the room. Small nudges on purpose. Fourth pass ("still slightly too much
+    // crunch", small changes): GAIN 0.14 → 0.08, treble a hair lower. Settled by the owner by ear
+    // (2026-11-22): DARK MATTER off (still set up) and the chorus on CE-1 VIB, "a little closer".
+    // The owner is done tuning this one for now; ask before changing it. For the heavier parts, tap on the SCREAMER (and/or
+    // turn GAIN up). The wah sits off in AUTO, ready as an envelope filter for 311's funkier riffs.
+    // DARK MATTER (owner request, same day) adds a sub-octave under single-note lines, as on
+    // Mahoney's board; tap it off for chords.
+    { name: 'Use of Time (311)', pedals: [
+      ['wah', false, { mode: 'AUTO', pos: 0.1, sens: 0.6, rate: 0.35 }],
+      ['ts', false, { drive: 0.5, tone: 0.55, level: 0.6 }],
+      ['octave', false, { direct: 0.7, oct1: 0.4, oct2: 0 }],
+      ['amp', true, { voice: 'MESA', gain: 0.08, bass: 0.45, mid: 0.58, treble: 0.55, volume: 0.62 }],
+      ['chorus', true, { rate: 0.2, depth: 0.2, mode: 'V' }],
+      ['echo', true, { time: 0.62, repeats: 0.22, mix: 0.2 }],
+      ['reverb', true, { level: 0.15, tone: 0.5, time: 0.4, mode: 4 }]] },
     // Your board > interface > NEON RIG > interface line out (left) > the amp. Chorus and reverb only.
     { name: 'Real Amp: Chorus + Reverb', cab: false, pedals: [
       ['chorus', true, { rate: 0.3, depth: 0.45, mode: 'S' }],
       ['reverb', true, { level: 0.25, tone: 0.5, time: 0.45, mode: 2 }]] },
   ];
-  const fromSpec = (spec) => spec.map(([type, on, params]) => makePedal(type, { on, params }));
+  const factorySpec = (f) => f.pedals.map(([type, on, params]) => ({ type, on, params }));
+
+  // A preset doesn't replace the board or reorder it (owner's choice: the chain order is theirs):
+  // it only switches the pedals already there on or off and sets their knobs. Each preset pedal
+  // takes the first unused board pedal of its type; board pedals the preset doesn't use are
+  // switched off and keep their settings. Only a pedal the board lacks (one removed, or a second
+  // of a type) is added, in its usual slot. So a preset's own pedal order is not applied (e.g.
+  // Clean Fender + Spring's chorus-before-amp). Returns the chain, the pedals that had to be added,
+  // and how many preset pedals were left out because the board was full (MAX_PEDALS).
+  function fitPreset(pedals, spec) {
+    const order = pedals.slice(), used = new Set(), added = [];
+    let skipped = 0;
+    for (const p of order) p.on = false;
+    for (const s of spec.slice(0, MAX_PEDALS)) {
+      if (!s || !isPedal(s.type)) continue;
+      let p = order.find((q) => q.type === s.type && !used.has(q));
+      if (!p) {
+        if (order.length >= MAX_PEDALS) { skipped++; continue; }
+        p = makePedal(s.type);
+        order.splice(insertAt(s.type, order), 0, p);
+        added.push(p);
+      }
+      used.add(p);
+      p.params = makePedal(s.type, { params: s.params || {} }).params; // validated, defaults filled
+      p.on = s.on !== false;
+    }
+    return { pedals: order, added, skipped };
+  }
+  // One of every pedal type (or of `types`), each in its CHAIN_ORDER slot, as far as MAX_PEDALS allows.
+  function addMissing(pedals, types = CHAIN_ORDER) {
+    for (const type of types) {
+      if (pedals.length >= MAX_PEDALS) break;
+      if (!pedals.some((p) => p.type === type)) pedals.splice(insertAt(type, pedals), 0, makePedal(type, { on: false }));
+    }
+    return pedals;
+  }
 
   // ------------------------------------------------------------------ state
 
@@ -317,7 +416,6 @@
     return lp;
   }
 
-  let needsArrange = false;
   const board = loadBoard();
 
   function loadBoard() {
@@ -336,12 +434,20 @@
       for (const k of ['inputId', 'outputId']) if (typeof io[k] !== 'string') io[k] = '';
       io.cab = io.cab !== false;
       const seen = new Set();
-      const pedals = saved.pedals.filter((p) => p && isPedal(p.type)).map((p) => makePedal(p.type, p));
+      const pedals = saved.pedals.filter((p) => p && isPedal(p.type)).slice(0, MAX_PEDALS).map((p) => makePedal(p.type, p));
       for (const p of pedals) { while (seen.has(p.id)) p.id = uid(); seen.add(p.id); }
-      return { pedals, io, loop: loadLoop(saved.loop) };
+      // A board gets each pedal type it lacks, switched off, once: when the board predates the full
+      // board, or the type is newer than the save (`known` lists the types it has been offered; saves
+      // from before `known` existed were offered the original eleven). After that a pedal you remove
+      // stays removed. A type that didn't fit (board at MAX_PEDALS) isn't marked known, so it is
+      // offered again once there is room.
+      const known = Array.isArray(saved.known) ? saved.known.filter(isPedal) : saved.full === true ? FIRST_TYPES : [];
+      addMissing(pedals, CHAIN_ORDER.filter((t) => !known.includes(t)));
+      const offered = CHAIN_ORDER.filter((t) => known.includes(t) || pedals.some((p) => p.type === t));
+      return { pedals, io, loop: loadLoop(saved.loop), full: true, known: offered };
     }
-    needsArrange = true;
-    return { pedals: fromSpec(FACTORY[0].pedals), io: { ...DEFAULT_IO }, loop: loadLoop() };
+    const { pedals } = fitPreset(addMissing([]), factorySpec(FACTORY[0]));
+    return { pedals, io: { ...DEFAULT_IO }, loop: loadLoop(), full: true, known: CHAIN_ORDER.slice() };
   }
 
   let saveTimer = 0;
@@ -421,6 +527,14 @@
         this.chGain[c].connect(this.inSum);
       }
       this.inSum.connect(this.cond);
+      // Tuner feed: the chosen input channel before the gate (which would cut a note's tail),
+      // low-passed so the fundamentals dominate, read about 20 times a second while it's open.
+      // Downsampled to 22-24 kHz before detection; the window is ~85 ms at any sample rate.
+      this.tunerDec = 2 ** Math.max(0, Math.floor(Math.log2(ctx.sampleRate / 20000)));
+      const tunerLP = new BiquadFilterNode(ctx, { type: 'lowpass', frequency: 1000, Q: -3.01 }); // Q in dB: Butterworth
+      this.tunerAn = new AnalyserNode(ctx, { fftSize: 2048 * this.tunerDec });
+      this.inSum.connect(tunerLP);
+      tunerLP.connect(this.tunerAn);
       this.cond.connect(this.inGain);
       this.inGain.connect(this.inMeter);
       this.inGain.connect(this.chainIn);
@@ -576,7 +690,9 @@
       if (!this.ctx) return;
       const t = this.ctx.currentTime, io = board.io;
       this.inGain.gain.setTargetAtTime(dbToGain(io.inGain), t, 0.01);
-      this.master.gain.setTargetAtTime(io.master <= -40 ? 0 : dbToGain(io.master), t, 0.01);
+      // Like a pedal tuner, the tuner mutes the output (unless its MUTE is off).
+      const muted = io.master <= -40 || (tuner.open && tuner.mute);
+      this.master.gain.setTargetAtTime(muted ? 0 : dbToGain(io.master), t, 0.01);
       this.cabWet.gain.setTargetAtTime(io.cab ? 1 : 0, t, 0.01);
       this.cabDry.gain.setTargetAtTime(io.cab ? 0 : 1, t, 0.01);
       const lp = board.loop;
@@ -893,12 +1009,21 @@
     drawCables();
   }
 
+  // The board area's size without the board's own scrollbars, measured with the board collapsed
+  // (sizing the board to a measurement that includes them makes it overflow by their width).
+  // Only on arrange and window changes: collapsing the board resets its scroll position.
+  const view = { w: 0, h: 0 };
+  function measureView() {
+    boardEl.style.width = boardEl.style.height = '0px';
+    view.w = wrapEl.clientWidth;
+    view.h = wrapEl.clientHeight;
+  }
   function fitBoard() {
-    let w = wrapEl.clientWidth, h = wrapEl.clientHeight;
+    let w = Math.floor(view.w / zoom), h = Math.floor(view.h / zoom);
     for (const p of board.pedals) {
       const d = PEDALS[p.type];
       w = Math.max(w, p.x + d.w + 140);
-      h = Math.max(h, p.y + d.h + 40);
+      h = Math.max(h, p.y + d.h + 30);
     }
     boardEl.style.width = `${w}px`;
     boardEl.style.height = `${h}px`;
@@ -910,6 +1035,13 @@
   }
 
   function cablePath(a, b) {
+    // Back to the start of a lower row: round the end of the row, along the gap between the rows
+    // (pedals are 300 tall, the jacks JACK_Y down), and round into the next input.
+    const rowGap = (b.y - JACK_Y) - (a.y - JACK_Y + 300);
+    if (b.x < a.x && rowGap > 20) {
+      const g = a.y - JACK_Y + 300 + rowGap / 2, r = Math.min(60, rowGap);
+      return `M${a.x},${a.y} C${a.x + r},${a.y} ${a.x + r},${g} ${a.x},${g} L${b.x},${g} C${b.x - r},${g} ${b.x - r},${b.y} ${b.x},${b.y}`;
+    }
     const span = Math.abs(b.x - a.x), fwd = b.x - a.x;
     // Forward runs get a gentle droop; backward runs loop out and around.
     const dx = fwd > 0 ? clamp(fwd * 0.5, 20, 200) : 90 + Math.min(120, -fwd * 0.25);
@@ -944,8 +1076,9 @@
     el.classList.add('dragging');
     const sx = e.clientX, sy = e.clientY, ox = p.x, oy = p.y;
     const move = (ev) => {
-      p.x = Math.max(0, snap(ox + ev.clientX - sx));
-      p.y = Math.max(0, snap(oy + ev.clientY - sy));
+      p.x = Math.max(0, snap(ox + (ev.clientX - sx) / zoom));
+      p.y = Math.max(0, snap(oy + (ev.clientY - sy) / zoom));
+      arranged = false;
       el.style.left = `${p.x}px`;
       el.style.top = `${p.y}px`;
       fitBoard();
@@ -963,29 +1096,55 @@
     el.addEventListener('pointercancel', up);
   }
 
-  // Lay pedals out left to right in chain order, wrapping rows if the window is narrow.
-  function arrange(animate) {
-    const width = Math.max(wrapEl.clientWidth, 600);
-    const left = 140, right = width - 140;
-    const rows = [[]];
-    let x = left;
-    for (const p of board.pedals) {
-      const w = PEDALS[p.type].w;
-      if (x + w > right && x > left) { rows.push([]); x = left; }
-      rows[rows.length - 1].push(p);
-      x += w + GAP;
+  // Board zoom, so the whole board fits the window. Pedal positions stay in unzoomed board pixels.
+  const MIN_ZOOM = 0.45;
+  let zoom = 1, arranged = false; // arranged: the layout is still ARRANGE's (no pedal dragged since)
+  function setZoom(z) {
+    zoom = z;
+    boardEl.style.zoom = z === 1 ? '' : String(z);
+  }
+  // Split the chain, in order, into `n` rows of about equal width.
+  function splitRows(pedals, n) {
+    const span = (p) => PEDALS[p.type].w + GAP;
+    const total = pedals.reduce((s, p) => s + span(p), 0);
+    const rows = Array.from({ length: n }, () => []);
+    let at = 0;
+    for (const p of pedals) {
+      rows[Math.min(n - 1, Math.floor((at + span(p) / 2) / (total / n)))].push(p);
+      at += span(p);
     }
-    const rowH = 300 + 70;
-    const top = Math.max(30, (wrapEl.clientHeight - rows.length * rowH + 70) / 2);
+    return rows.filter((r) => r.length);
+  }
+
+  // Lay pedals out left to right in chain order, in however many rows (up to 4) lets the board
+  // show biggest in this window, and zoom the board to fit.
+  function arrange(animate) {
+    measureView();
+    const vw = Math.max(view.w - 2, 320), vh = Math.max(view.h - 2, 200);
+    const SIDE = 140, PAD = 30, ROW_H = 300, ROW_GAP = 70;
+    const rowWidth = (row) => row.reduce((s, p) => s + PEDALS[p.type].w, 0) + GAP * (row.length - 1);
+    let best = null;
+    for (let n = 1; n <= Math.min(4, board.pedals.length || 1); n++) {
+      const rows = splitRows(board.pedals, n);
+      const w = 2 * SIDE + Math.max(0, ...rows.map(rowWidth));
+      const h = 2 * PAD + rows.length * ROW_H + Math.max(0, rows.length - 1) * ROW_GAP; // empty board: no rows
+      // Unclamped below MIN_ZOOM, so a window too small for any layout gets the one that spills least.
+      const z = Math.min(vw / w, vh / h, 1);
+      if (!best || z > best.z + 0.02) best = { rows, z }; // fewer rows unless more is clearly bigger
+    }
+    setZoom(Math.floor(clamp(best.z, MIN_ZOOM, 1) * 100) / 100);
+    const { rows } = best;
+    const bw = vw / zoom, bh = vh / zoom; // the window in board pixels
+    const top = Math.max(PAD, (bh - rows.length * (ROW_H + ROW_GAP) + ROW_GAP) / 2);
     rows.forEach((row, r) => {
-      const rowW = row.reduce((s, p) => s + PEDALS[p.type].w, 0) + GAP * (row.length - 1);
-      let cx = left + Math.max(0, (right - left - rowW) / 2);
+      let cx = SIDE + Math.max(0, (bw - 2 * SIDE - rowWidth(row)) / 2);
       for (const p of row) {
         p.x = snap(cx);
-        p.y = snap(top + r * rowH);
+        p.y = snap(top + r * (ROW_H + ROW_GAP));
         cx += PEDALS[p.type].w + GAP;
       }
     });
+    arranged = true;
 
     if (animate) boardEl.classList.add('arranging');
     for (const p of board.pedals) {
@@ -1095,26 +1254,25 @@
     drawCables();
     save();
   }
-  // Where a new pedal goes in the chain (-1 = the end). Drag its chip to move it after.
-  // Wah first; fuzz straight after the wah (as on Hendrix's board); the vibe, phaser and flanger
-  // in front of the amp (as on Van Halen's board); the amp after the drives and before modulation
-  // and reverb, like an effects loop. After the amp: chorus, then tremolo, then echo, reverb last.
-  function insertAt(type) {
-    const first = (pred) => { const i = board.pedals.findIndex(pred); return i < 0 ? board.pedals.length : i; };
-    const before = (...types) => first((q) => types.includes(q.type));
-    if (type === 'wah') return 0;
-    if (type === 'fuzz') return first((q) => q.type !== 'wah');
-    if (type === 'vibe' || type === 'phaser' || type === 'flanger') return before('amp', 'chorus', 'trem', 'echo', 'reverb');
-    if (type === 'amp') return before('chorus', 'trem', 'echo', 'reverb');
-    if (type === 'chorus') return before('trem', 'echo', 'reverb');
-    if (type === 'trem') return before('echo', 'reverb');
-    if (type === 'echo') return before('reverb');
-    return -1;
+  // A new pedal goes where the fewest pedals end up on the wrong side of it (see CHAIN_ORDER): on
+  // a board in that order, exactly its slot; on one reordered by hand, the closest fit (a new echo
+  // still lands after the amp even if the reverb was dragged to the front). Ties go to the later
+  // slot, so a second pedal of a type sits after the first. Drag its chip to move it after.
+  function insertAt(type, list = board.pedals) {
+    const rank = (t) => { const i = CHAIN_ORDER.indexOf(t); return i < 0 ? CHAIN_ORDER.length : i; };
+    const r = rank(type), ranks = list.map((q) => rank(q.type));
+    let best = 0, fewest = Infinity;
+    for (let i = 0; i <= ranks.length; i++) {
+      const wrong = ranks.slice(0, i).filter((x) => x > r).length + ranks.slice(i).filter((x) => x < r).length;
+      if (wrong <= fewest) { best = i; fewest = wrong; }
+    }
+    return best;
   }
   function addPedal(type) {
+    if (board.pedals.length >= MAX_PEDALS) { toast(`The board holds up to ${MAX_PEDALS} pedals. Remove one first.`); return; }
     const p = makePedal(type);
     const at = insertAt(type);
-    if (at >= 0) {
+    if (at < board.pedals.length) { // somewhere inside the chain: make room and re-line the board
       if (type === 'amp' && !board.io.cab) toast('Turn CAB SIM on for headphones. Leave it off if you play into a real amp.');
       board.pedals.splice(at, 0, p);
       renderBoard();
@@ -1123,9 +1281,11 @@
       focusPedal(p.id);
       return;
     }
+    // At the end of the chain: park it after the last pedal and leave the rest where they are.
+    if (type === 'amp' && !board.io.cab) toast('Turn CAB SIM on for headphones. Leave it off if you play into a real amp.');
     const last = board.pedals[board.pedals.length - 1];
     p.x = snap(last ? last.x + PEDALS[last.type].w + GAP : 130);
-    p.y = last ? last.y : snap(Math.max(30, wrapEl.clientHeight / 2 - 150));
+    p.y = last ? last.y : snap(Math.max(30, wrapEl.clientHeight / zoom / 2 - 150));
     board.pedals.push(p);
     chainChanged();
     focusPedal(p.id);
@@ -1159,22 +1319,41 @@
     const v = presetSel.value;
     if (!v) return;
     const i = Number(v.slice(1));
-    if (v[0] === 'f') {
-      board.pedals = fromSpec(FACTORY[i].pedals);
-      arrange(false);
-      if (FACTORY[i].cab === false && board.io.cab) {
-        board.io.cab = false;
-        cabBtn.classList.remove('on');
-        A.applyIO();
-        save();
-        toast('CAB SIM is off: this preset is for playing into a real amp. Turn it back on for headphones.');
-      }
-    } else {
-      const u = userPresets()[i];
-      if (!u) return;
-      board.pedals = u.pedals.filter((p) => p && isPedal(p.type)).map((p) => makePedal(p.type, { ...p, id: uid() }));
+    const u = v[0] === 'u' ? userPresets()[i] : null;
+    if (v[0] === 'f' ? !FACTORY[i] : !u) return;
+    const before = board.pedals.slice();
+    const was = new Map(before.map((p) => [p, { on: p.on, params: { ...p.params } }]));
+    const { pedals, added, skipped } = fitPreset(board.pedals, u ? u.pedals : factorySpec(FACTORY[i]));
+    if (skipped) toast(`The board is full (${MAX_PEDALS} pedals), so ${skipped} of this preset's pedals were left out. Remove a pedal and load it again.`, null, null, true);
+    board.pedals = pedals;
+    // Tell the audio engine only what changed, so unchanged pedals carry on without a blip.
+    for (const p of pedals) {
+      const w = was.get(p);
+      if (!w) continue;
+      for (const k in p.params) if (p.params[k] !== w.params[k]) A.param(p, k, p.params[k]);
+      if (p.on !== w.on) A.engaged(p);
     }
-    chainChanged();
+    // The chain order never changes here; only a pedal the board lacked is added. On a hand-placed
+    // board it parks beside its neighbour in the chain, so the owner's layout stays as it is.
+    if (added.length && !arranged) {
+      for (const p of added) {
+        const prev = pedals[pedals.indexOf(p) - 1];
+        p.x = prev ? snap(prev.x + PEDALS[prev.type].w + GAP) : 130;
+        p.y = prev ? prev.y : 30;
+      }
+    }
+    renderBoard();
+    if (added.length) { A.rewire(); if (arranged) arrange(true); }
+    // Light up what the preset uses, so it's easy to see which pedals are now in play.
+    for (const p of pedals) if (p.on) boardEl.querySelector(`.pedal[data-id="${p.id}"]`).classList.add('flash');
+    save();
+    if (!u && FACTORY[i].cab === false && board.io.cab) {
+      board.io.cab = false;
+      cabBtn.classList.remove('on');
+      A.applyIO();
+      save();
+      toast('CAB SIM is off: this preset is for playing into a real amp. Turn it back on for headphones.');
+    }
   });
   $('#presetSave').addEventListener('click', () => {
     const current = presetSel.value[0] === 'u' ? userPresets()[Number(presetSel.value.slice(1))] : null;
@@ -1206,8 +1385,11 @@
     powerBtn.classList.toggle('on', on);
     $('#powerLabel').textContent = on ? 'ONLINE' : 'START';
     document.body.classList.toggle('live', on);
+    if (tuner.open) paintTuner(null);
   }
   powerBtn.addEventListener('click', async () => {
+    // Already starting: a second start (the TUNER's click, or Enter) would build a second engine.
+    if (powerBtn.classList.contains('busy')) return;
     if (A.running) { A.stop(); setLive(false); return; }
     powerBtn.classList.add('busy');
     try {
@@ -1863,6 +2045,7 @@
   }
   function tick(now) {
     paintTransport();
+    tunerTick(now);
     if (A.running) {
       const c1 = peakOf(A.chMeter[0]), c2 = peakOf(A.chMeter[1]);
       paintMeter('ch1', c1, now);
@@ -1891,6 +2074,91 @@
     requestAnimationFrame(tick);
   }
 
+  // ------------------------------------------------------------------ tuner
+
+  const TUNE = NEON_RIG_TUNER;
+  const IN_TUNE = 2, CLOSE = 10; // cents
+  const tuner = { open: false, mute: true, last: 0, heard: 0, midi: null, pending: null, hist: [], cents: 0, buf: null };
+  const tunerEl = $('#tuner'), tunerBtn = $('#tunerBtn'), tunerMute = $('#tunerMute');
+  const tnNote = $('#tnNote'), tnOct = $('#tnOct'), tnNeedle = $('#tnNeedle'), tnRead = $('#tnRead'), tnHint = $('#tnHint');
+  const tnStrings = $('#tnStrings');
+  tnStrings.innerHTML = TUNE.STRINGS.map((m, i) => {
+    const n = TUNE.note(440 * 2 ** ((m - 69) / 12));
+    return `<span data-midi="${m}" title="String ${6 - i}: ${n.name}${n.octave}">${n.name}<small>${6 - i}</small></span>`;
+  }).join('');
+
+  function paintTuner(n, freq) {
+    const live = !!n;
+    tunerEl.classList.toggle('live', live);
+    const c = live ? tuner.cents : 0;
+    const state = !live ? '' : Math.abs(c) <= IN_TUNE ? 'intune' : Math.abs(c) <= CLOSE ? 'close' : 'off';
+    tunerEl.dataset.state = state;
+    tunerEl.classList.toggle('flat', live && c < -IN_TUNE);
+    tunerEl.classList.toggle('sharp', live && c > IN_TUNE);
+    tnNote.textContent = live ? n.name : '--';
+    tnOct.textContent = live ? n.octave : '';
+    tnNeedle.style.setProperty('--c', clamp(c, -50, 50).toFixed(1));
+    tnRead.textContent = live ? `${c > 0 ? '+' : ''}${c.toFixed(1)} ¢  ·  ${freq.toFixed(1)} Hz` : 'A4 = 440 Hz';
+    tnHint.textContent = !A.running ? 'Press START to tune' : live
+      ? (state === 'intune' ? 'IN TUNE' : c < 0 ? 'FLAT: tune up' : 'SHARP: tune down') : 'Play one string';
+    tnStrings.querySelectorAll('span').forEach((s) => s.classList.toggle('hit', live && Number(s.dataset.midi) === n.midi));
+  }
+
+  function tunerTick(now) {
+    if (!tuner.open || !A.running || now - tuner.last < 50) return;
+    tuner.last = now;
+    const an = A.tunerAn;
+    if (!tuner.buf || tuner.buf.length !== an.fftSize) tuner.buf = new Float32Array(an.fftSize);
+    an.getFloatTimeDomainData(tuner.buf);
+    const d = A.tunerDec;
+    const r = TUNE.detect(TUNE.decimate(tuner.buf, d), A.ctx.sampleRate / d);
+    if (r && r.clarity >= 0.85) {
+      const n = TUNE.note(r.freq);
+      if (n.midi !== tuner.midi) {
+        // A new note has to show up twice in a row, so one stray reading can't flick the display.
+        if (tuner.pending !== n.midi) { tuner.pending = n.midi; return; }
+        tuner.midi = n.midi;
+        tuner.hist = [];
+        tuner.cents = n.cents;
+      }
+      tuner.pending = null;
+      tuner.heard = now;
+      // Median of the last five readings, then a little smoothing, so the needle settles.
+      tuner.hist.push(r.freq);
+      if (tuner.hist.length > 5) tuner.hist.shift();
+      const med = [...tuner.hist].sort((a, b) => a - b)[tuner.hist.length >> 1];
+      const c = 1200 * Math.log2(med / (440 * 2 ** ((tuner.midi - 69) / 12)));
+      tuner.cents += (c - tuner.cents) * 0.5;
+      const m = tuner.midi;
+      paintTuner({ midi: m, name: TUNE.NAMES[m % 12], octave: Math.floor(m / 12) - 1 }, med);
+    } else if (now - tuner.heard > 1500 && tuner.midi !== null) {
+      tuner.midi = null;
+      tuner.pending = null;
+      paintTuner(null);
+    }
+  }
+
+  function setTuner(open) {
+    tuner.open = open;
+    tunerEl.hidden = !open;
+    tunerBtn.classList.toggle('on', open);
+    tuner.midi = null;
+    tuner.pending = null;
+    paintTuner(null);
+    A.applyIO();
+    if (open && !A.running) powerBtn.click(); // tuning needs the guitar input
+  }
+  tunerBtn.addEventListener('click', () => setTuner(!tuner.open));
+  $('#tunerClose').addEventListener('click', () => setTuner(false));
+  tunerMute.classList.toggle('on', tuner.mute);
+  tunerMute.addEventListener('click', () => {
+    tuner.mute = !tuner.mute;
+    tunerMute.classList.toggle('on', tuner.mute);
+    A.applyIO();
+  });
+  // Capture phase, so this runs before the help overlay's Esc handler: Esc closes help first.
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && tuner.open && help.hidden) setTuner(false); }, true);
+
   // ------------------------------------------------------------------ boot
 
   if (navigator.mediaDevices) {
@@ -1905,14 +2173,24 @@
   renderBoard();
   renderBeats();
   renderProg();
-  if (needsArrange) arrange(false);
+  arrange(false); // the board always opens neatly laid out and sized to the window
+  // Keep an arranged board fitted whenever the board area changes size: the window, or the bars
+  // above and below it re-wrapping (also once the web fonts load). A hand-placed board stays put.
+  // Border-box, so the board's own scrollbars coming and going don't count as a resize.
   let resizeRaf = 0;
-  window.addEventListener('resize', () => {
+  new ResizeObserver(() => {
     cancelAnimationFrame(resizeRaf);
-    resizeRaf = requestAnimationFrame(() => { fitBoard(); drawCables(); });
-  });
+    resizeRaf = requestAnimationFrame(() => {
+      if (arranged) { arrange(false); return; }
+      const { scrollLeft, scrollTop } = wrapEl;
+      measureView();
+      fitBoard();
+      wrapEl.scrollTo(scrollLeft, scrollTop);
+      drawCables();
+    });
+  }).observe(wrapEl, { box: 'border-box' });
   requestAnimationFrame(tick);
 
   // Debug handle for the console (and automated checks).
-  window.NEON_RIG = { board, engine: A, PEDALS, looper: { get S() { return S; }, get take() { return take; } } };
+  window.NEON_RIG = { board, engine: A, PEDALS, tuner, get zoom() { return zoom; }, looper: { get S() { return S; }, get take() { return take; } } };
 })();

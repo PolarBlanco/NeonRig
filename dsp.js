@@ -6,10 +6,10 @@
  * tests/dsp-test.js evaluates the same function under Node.
  *
  * The models are behavioural approximations written for this app, not circuit-exact
- * clones: Cry Baby style wah, Fuzz Face style fuzz, TS-808 style overdrive, Uni-Vibe
+ * clones: Dyna Comp style compressor, Cry Baby style wah, Fuzz Face style fuzz, TS-808 style overdrive, Uni-Vibe
  * style vibe, Phase 90 style phaser, BF-2 style flanger, CE-2W style chorus/vibrato, TR-2 style tremolo,
- * Echoplex style tape echo, RV-6 style reverb,
- * a three-voice amp head, plus the input conditioner (hum filter
+ * Echoplex style tape echo, RV-6 style reverb, OC-2 style octave,
+ * a four-voice amp head, plus the input conditioner (hum filter
  * and noise gate) that sits in front of them, and the looper's recorder.
  */
 function NEON_RIG_DSP() {
@@ -150,16 +150,47 @@ function NEON_RIG_DSP() {
       this.engaged = o.engaged !== false;
       this.mix = new Smoother(this.engaged ? 1 : 0, 6);
       this.silence = null;
+      // Samples the bypassed output has matched the input. After a second of that (longer than
+      // the longest echo gap, so a tail spilling over from echo or reverb has really died away)
+      // the pedal stops computing and passes the input straight through until it's switched on.
+      // A pedal created bypassed has nothing to ring out, so it starts idle.
+      this.quiet = this.engaged ? 0 : SR;
+      this.settle = 0; // samples left before a woken pedal fades in (see wake)
       this.port.onmessage = (e) => this.onMessage(e.data);
     }
     applyInitial() { for (const k in this.initial) this.setParam(k, this.initial[k]); }
     onMessage(m) {
       if (!m) return;
       if (m.type === 'param') this.setParam(m.name, m.value);
-      else if (m.type === 'engaged') { this.engaged = !!m.value; this.mix.set(this.engaged ? 1 : 0); }
+      else if (m.type === 'engaged') {
+        const waking = m.value && !this.engaged && this.quiet >= SR;
+        this.engaged = !!m.value;
+        this.settle = 0;
+        this.mix.set(this.engaged ? 1 : 0);
+        if (waking) this.wake();
+      }
       else if (m.type === 'dispose') this.alive = false;
     }
     setParam() {}
+    // Switched back on after idling. Nothing ran while idle, so knob glides (e.g. a new echo TIME)
+    // would start from the old value, and delay lines and filters still hold audio from when it went
+    // idle. So: land every smoother on its target (not the bypass fade), empty the delay lines, then
+    // run on the live input for 40 ms with the output still dry before fading in. That settles the
+    // filters and bias points naturally; zeroing them instead makes a fuzz or amp thump. Params sent
+    // with the switch arrive first (same port, in order).
+    wake() {
+      const seen = new Set();
+      const visit = (o, depth) => {
+        if (!o || typeof o !== 'object' || depth > 4 || seen.has(o) || ArrayBuffer.isView(o)) return;
+        seen.add(o);
+        if (o instanceof Smoother) { if (o !== this.mix) o.snap(); return; }
+        if (o instanceof DelayLine || o instanceof Allpass) { o.clear(); return; }
+        for (const k of Object.keys(o)) if (k !== 'port' && k !== 'initial' && k !== 'silence') visit(o[k], depth + 1);
+      };
+      visit(this, 0);
+      this.mix.set(0);
+      this.settle = Math.round(0.04 * SR);
+    }
     process(inputs, outputs) {
       const out = outputs[0];
       const oL = out[0], oR = out[1] || out[0];
@@ -171,7 +202,21 @@ function NEON_RIG_DSP() {
         iL = this.silence;
       }
       if (!iR) iR = iL;
+      if (this.engaged || this.mix.v !== 0) {
+        this.quiet = 0;
+        if (this.settle > 0 && (this.settle -= n) <= 0) this.mix.set(1); // woken: settled, now fade in
+        this.render(iL, iR, oL, oR, n);
+        return this.alive;
+      }
+      if (this.quiet >= SR) { // idle: the whole board is loaded, so bypassed pedals must cost nothing
+        oL.set(iL);
+        if (oR !== oL) oR.set(iR);
+        return this.alive;
+      }
       this.render(iL, iR, oL, oR, n);
+      let d = 0;
+      for (let s = 0; s < n; s++) d = Math.max(d, Math.abs(oL[s] - iL[s]), Math.abs(oR[s] - iR[s]));
+      this.quiet = d < 1e-5 ? this.quiet + n : 0;
       return this.alive;
     }
   }
@@ -371,6 +416,173 @@ function NEON_RIG_DSP() {
         const m = this.mix.next();
         oL[s] = iL[s] + (iL[s] * g - iL[s]) * m;
         oR[s] = iR[s] + (iR[s] * g - iR[s]) * m;
+      }
+    }
+  }
+
+  // ---------------------------------------------------------------- Dyna Comp style compressor
+  //
+  // Evens out the guitar: loud picking is pulled down and quiet notes and decaying tails are brought
+  // up, so notes sustain longer and sit at one level. The "squash" of country and glassy Strat clean
+  // and blues tones. A behavioural model: a feed-forward compressor with a soft knee, a fast attack
+  // (~4 ms, so a little pick "pop" gets through, as on the OTA pedals) and a slow release that
+  // lengthens with SUSTAIN.
+  // SUSTAIN = threshold and ratio together (about -18 dB at 2:1 up to -42 dB at 10:1), with automatic
+  //           make-up so a firmly picked note comes back near its own level.
+  // LEVEL   = output, -12 .. +12 dB; noon is unity.
+  // BLEND   = how much of the compressed signal is mixed with the dry: below full keeps the natural
+  //           pick attack on top of the sustained note (parallel compression).
+  // The detector follows the louder channel, so both channels get the same gain. Above about -1 dBFS
+  // the output is softly limited, so extreme settings stay bounded.
+
+  class Compressor extends PedalProcessor {
+    constructor(options) {
+      super(options);
+      this.p = { sustain: 0.5, level: 0.5, blend: 0.7 };
+      this.sus = new Smoother(0.5, 30);
+      this.out = new Smoother(1, 30);
+      this.blend = new Smoother(0.7, 30);
+      this.env = 0; // detector level, linear
+      this.gr = 0;  // gain change being applied, dB (<= 0)
+      // The detector catches peaks at once and the gain clamps down within a fraction of a
+      // millisecond, so a fresh pick never gets the full make-up gain as a spike (the 2026-11-15
+      // review measured +8 dB onsets with slower attacks). BLEND's dry share keeps the natural attack.
+      this.kEnvR = 1 - Math.exp(-1000 / (SR * 60)); // detector release, 60 ms
+      this.kAtk = 1 - Math.exp(-1000 / (SR * 0.25)); // gain attack, 0.25 ms
+      for (const k in this.p) this.setParam(k, this.p[k]);
+      this.applyInitial();
+      this.sus.snap();
+      this.out.snap();
+      this.blend.snap();
+    }
+    setParam(k, v) {
+      if (k === 'sustain') {
+        this.p.sustain = clamp(num(v, this.p.sustain), 0, 1);
+        this.sus.set(this.p.sustain);
+      } else if (k === 'level') {
+        this.p.level = clamp(num(v, this.p.level), 0, 1);
+        this.out.set(Math.pow(10, (this.p.level - 0.5) * 24 / 20));
+      } else if (k === 'blend') {
+        this.p.blend = clamp(num(v, this.p.blend), 0, 1);
+        this.blend.set(this.p.blend);
+      }
+    }
+    wake() { super.wake(); this.env = 0; this.gr = 0; }
+    render(iL, iR, oL, oR, n) {
+      const KNEE = 6, LN10_20 = Math.LN10 / 20, DB = 20 / Math.LN10;
+      // Static curve: gain change (dB) for a detector level L (dB).
+      const curve = (L, T, R) => {
+        const over = L - T;
+        if (2 * over < -KNEE) return 0;
+        if (2 * over <= KNEE) { const a = over + KNEE / 2; return (1 / R - 1) * a * a / (2 * KNEE); }
+        return (1 / R - 1) * over;
+      };
+      let T = 0, R = 1, makeup = 0, kRel = 0, last = NaN;
+      for (let s = 0; s < n; s++) {
+        const sus = this.sus.next();
+        if (sus !== last) { // only while SUSTAIN glides
+          last = sus;
+          T = -18 - 24 * sus; R = 2 + 8 * sus;
+          // Make-up: a firm note (detector around -12 dBFS) comes out at about its own level.
+          makeup = -curve(-12, T, R);
+          kRel = 1 - Math.exp(-1000 / (SR * (80 + 250 * sus)));
+        }
+        const xL = iL[s], xR = iR[s];
+        // A NaN, Infinity or absurd sample is ignored by the detector, so it can't latch the state.
+        const a0 = Math.max(Math.abs(xL), Math.abs(xR)), a = a0 < 4 ? a0 : 0;
+        this.env = a > this.env ? a : flush(this.env + (a - this.env) * this.kEnvR);
+        const L = DB * Math.log(this.env + 1e-9);
+        const target = curve(L, T, R);
+        this.gr = flush(this.gr + (target - this.gr) * (target < this.gr ? this.kAtk : kRel));
+        const g = Math.exp((this.gr + makeup) * LN10_20);
+        const b = this.blend.next(), o = this.out.next();
+        const wet = (1 - b) + b * g; // dry + compressed, as one gain
+        let yL = xL * wet * o, yR = xR * wet * o;
+        // Soft ceiling above 0.9.
+        if (yL > 0.9 || yL < -0.9) yL = Math.sign(yL) * (0.9 + 0.1 * softLimit((Math.abs(yL) - 0.9) / 0.1));
+        if (yR > 0.9 || yR < -0.9) yR = Math.sign(yR) * (0.9 + 0.1 * softLimit((Math.abs(yR) - 0.9) / 0.1));
+        const m = this.mix.next();
+        oL[s] = xL + (yL - xL) * m;
+        oR[s] = xR + (yR - xR) * m;
+      }
+    }
+  }
+
+  // ---------------------------------------------------------------- OC-2 style octave
+  //
+  // An analog octave divider, as in the OC-2. A heavily low-passed copy of the guitar drives a
+  // comparator with hysteresis (a share of the recent peak, so it tracks soft and loud notes
+  // alike), and a flip-flop toggles once per cycle (÷2) and a second one once per two cycles
+  // (÷4). The flip-flops switch the polarity of a darker copy of the guitar, so the octaves keep
+  // the note's own envelope and fade with it: OCT 1 = x·A, whose fundamental is an octave down;
+  // OCT 2 = x·A·B, two octaves down. A flip waits for that copy's next rising zero crossing, so the
+  // polarity changes where the signal is zero and never clicks. Monophonic: chords and double stops
+  // make it warble, as on the real pedal. DIRECT, OCT 1 and OCT 2 are the three levels.
+  // When the flip-flops stop (a note fading below what the detector can follow; high notes get
+  // there first), a frozen polarity would pass the note through at its own pitch. So the octaves
+  // fade out over ~8 ms once nothing has flipped for 30 ms, longer than a cycle of the lowest note,
+  // and fade back in when tracking resumes (review 2026-11-22, finding 3).
+
+  const octLevel = (k) => 2 * k * k; // 0.5 (noon) = 0.5, 0.7 (about 1:30, "7" on the readout) ≈ unity, full = 2
+  const OCT_HOLD = 0.03; // s without a flip before the octaves fade out
+
+  class Octave extends PedalProcessor {
+    constructor(options) {
+      super(options);
+      this.p = { direct: 0.7, oct1: 0.5, oct2: 0 };
+      this.g = { direct: new Smoother(0, 20), oct1: new Smoother(0, 20), oct2: new Smoother(0, 20) };
+      this.inHP = new OnePole().setCutoff(40);
+      this.body = [new OnePole().setCutoff(900), new OnePole().setCutoff(900)];  // what gets flipped
+      this.det = [0, 1, 2, 3].map(() => new OnePole().setCutoff(250));           // what gets tracked
+      this.outLP = new OnePole().setCutoff(2000);
+      this.kRel = 1 - Math.exp(-1000 / (SR * 50)); // detector peak release, 50 ms
+      this.kGate = 1 - Math.exp(-1000 / (SR * 8));  // octave fade in/out, 8 ms
+      this.hold = Math.round(OCT_HOLD * SR);
+      this.reset();
+      for (const k in this.p) this.setParam(k, this.p[k]);
+      this.applyInitial();
+      for (const k in this.g) this.g[k].snap();
+    }
+    reset() {
+      this.A = 1; this.B = 1; this.hi = false; this.pend = false; this.env = 0; this.prev = 0;
+      this.since = this.hold; this.gate = 0; // not tracking yet: octaves faded out
+    }
+    setParam(k, v) {
+      if (!Object.prototype.hasOwnProperty.call(this.p, k)) return; // not 'toString' and the like
+      this.p[k] = clamp(num(v, this.p[k]), 0, 1);
+      this.g[k].set(octLevel(this.p[k]));
+    }
+    wake() { super.wake(); this.reset(); }
+    render(iL, iR, oL, oR, n) {
+      const gD = this.g.direct, g1 = this.g.oct1, g2 = this.g.oct2;
+      for (let s = 0; s < n; s++) {
+        const xL = iL[s], xR = iR[s];
+        // A NaN, Infinity or absurd sample is ignored, so it can't latch the filters or the detector.
+        const x0 = 0.5 * (xL + xR), x = Number.isFinite(x0) && Math.abs(x0) < 4 ? x0 : 0;
+        const h = this.inHP.hp(x);
+        const c = this.body[1].lp(this.body[0].lp(h));
+        const d = this.det[3].lp(this.det[2].lp(this.det[1].lp(this.det[0].lp(h))));
+        const ad = Math.abs(d);
+        this.env = ad > this.env ? ad : flush(this.env + (ad - this.env) * this.kRel);
+        const th = 0.35 * this.env + 1e-5;
+        if (!this.hi && d > th) { this.hi = true; this.pend = true; }
+        else if (this.hi && d < -th) this.hi = false;
+        if (this.pend && this.prev <= 0 && c > 0) {
+          this.A = -this.A;
+          if (this.A > 0) this.B = -this.B;
+          this.pend = false;
+          this.since = 0;
+        } else if (this.since < this.hold) this.since++;
+        this.prev = c;
+        this.gate = flush(this.gate + ((this.since < this.hold ? 1 : 0) - this.gate) * this.kGate);
+        const sub = this.outLP.lp(c * this.A * this.gate * (g1.next() + g2.next() * this.B));
+        const dg = gD.next();
+        let yL = xL * dg + sub, yR = xR * dg + sub;
+        if (yL > 0.9 || yL < -0.9) yL = Math.sign(yL) * (0.9 + 0.1 * softLimit((Math.abs(yL) - 0.9) / 0.1));
+        if (yR > 0.9 || yR < -0.9) yR = Math.sign(yR) * (0.9 + 0.1 * softLimit((Math.abs(yR) - 0.9) / 0.1));
+        const m = this.mix.next();
+        oL[s] = xL + (yL - xL) * m;
+        oR[s] = xR + (yR - xR) * m;
       }
     }
   }
@@ -768,8 +980,14 @@ function NEON_RIG_DSP() {
   // sweeps) swept from ~380 Hz (heel) to ~2.3 kHz (toe), with Q rising toward the toe
   // and a little low-pass bleed for body, roughly like the GCB95's inductor filter.
   // Nobody has a free foot for a virtual treadle, so the sweep comes from:
-  // AUTO = picking dynamics (envelope), LFO = steady sweep, FIX = POSITION knob only.
+  // AUTO = picking dynamics (envelope), LFO = steady sweep, FIX = POSITION knob only,
+  // NOTE = the pitch being played: higher notes open it toward the toe, a held note holds it
+  // there, and between phrases it eases back to POSITION, which is the floor. The pitch tracker
+  // (low-passed peak-to-peak period, median of 5) only steers the filter, so it adds no delay
+  // to the sound. It's made for single-note lines; chords make it wander.
   // The live sweep position is posted back to the page ~30x/s to animate the pedal.
+
+  const NOTE_LO = 110, NOTE_OCT = 3; // A2 .. A5 maps to the bottom .. top of the NOTE range
 
   class Wah extends PedalProcessor {
     constructor(options) {
@@ -785,11 +1003,43 @@ function NEON_RIG_DSP() {
       this.inHP = new OnePole().setCutoff(60);
       this.blocks = 0;
       this.lastSent = -1;
+      // NOTE mode pitch tracker.
+      // Four low-pass stages leave mostly the fundamental, even of a bridge pickup's bright high notes.
+      this.tLP = [0, 1, 2, 3].map(() => new OnePole().setCutoff(700));
+      this.tPeak = 0;
+      this.tPeakK = Math.exp(-1 / (SR * 0.05));
+      this.tHigh = false;
+      this.tCount = 0;
+      this.periods = new Float64Array(5);
+      this.sorted = new Float64Array(5);
+      this.pIdx = 0; this.pN = 0;
+      this.sinceNote = SR; // samples since the last note reading
+      this.sinceCycle = SR; // samples since the last cycle; a gap starts a fresh median
+      this.noteT = 0;  // where the last note puts the wah, 0..1 of the NOTE range
+      this.track = 0;  // noteT, followed at RATE
+      this.relaxK = 1 - Math.exp(-1 / (SR * 0.5));
       this.applyInitial();
       this.base.snap();
+      this.sweep.set(this.base.v); // start at POSITION, not a few ms below it
+      this.sweep.snap();
+    }
+    // One period from the tracker, in samples. Uses the median of the last five, so a stray
+    // octave jump on a single cycle doesn't flick the wah.
+    addPeriod(p) {
+      this.sinceCycle = 0;
+      this.periods[this.pIdx] = p;
+      this.pIdx = (this.pIdx + 1) % 5;
+      if (this.pN < 5) this.pN++;
+      if (this.pN < 3) return;
+      const s = this.sorted;
+      for (let i = 0; i < this.pN; i++) s[i] = this.periods[i];
+      for (let i = 1; i < this.pN; i++) { const v = s[i]; let j = i - 1; while (j >= 0 && s[j] > v) { s[j + 1] = s[j]; j--; } s[j + 1] = v; }
+      const f = SR / s[this.pN >> 1];
+      this.noteT = clamp(Math.log2(f / NOTE_LO) / NOTE_OCT, 0, 1);
+      this.sinceNote = 0;
     }
     setParam(k, v) {
-      if (k === 'mode') { this.p.mode = v === 'LFO' || v === 'FIX' ? v : 'AUTO'; return; }
+      if (k === 'mode') { this.p.mode = v === 'LFO' || v === 'FIX' || v === 'NOTE' ? v : 'AUTO'; return; }
       if (!(k in this.p)) return;
       this.p[k] = clamp(num(v, this.p[k]), 0, 1);
       if (k === 'pos') this.base.set(this.p.pos);
@@ -797,6 +1047,10 @@ function NEON_RIG_DSP() {
     render(iL, iR, oL, oR, n) {
       const mode = this.p.mode, sens = this.p.sens;
       const lfoHz = 0.2 * Math.pow(30, this.p.rate); // 0.2 .. 6 Hz
+      // NOTE: how quickly the wah follows a new note, 400 ms (RATE 0) .. 20 ms (RATE 10).
+      const followK = 1 - Math.exp(-1 / (SR * 0.4 * Math.pow(0.05, this.p.rate)));
+      const noteAmt = 0.5 + sens; // SENS: how far notes push it above the floor
+      const minP = SR / 1400, maxP = SR / 65;
       for (let s = 0; s < n; s++) {
         const dryL = iL[s], dryR = iR[s];
         const x = this.inHP.hp(0.5 * (dryL + dryR));
@@ -811,6 +1065,28 @@ function NEON_RIG_DSP() {
           this.phase += lfoHz / SR;
           if (this.phase >= 1) this.phase -= 1;
           target = base + (1 - base) * (0.5 - 0.5 * Math.cos(TAU * this.phase));
+        } else if (mode === 'NOTE') {
+          // Peak-to-peak period with hysteresis at 40% of the recent peak: a cycle counts once it
+          // has gone above +h and back below -h, so wiggles from harmonics don't add extra cycles.
+          const [l0, l1, l2, l3] = this.tLP;
+          const y = l3.lp(l2.lp(l1.lp(l0.lp(x))));
+          const ay = y < 0 ? -y : y;
+          this.tPeak = ay > this.tPeak ? ay : this.tPeak * this.tPeakK;
+          const h = 0.4 * this.tPeak;
+          this.tCount++;
+          if (!this.tHigh) {
+            if (y > h && this.tPeak > 0.002) {
+              this.tHigh = true;
+              if (this.tCount >= minP && this.tCount <= maxP) this.addPeriod(this.tCount);
+              this.tCount = 0;
+            }
+          } else if (y < -h) this.tHigh = false;
+          // A held note holds its place; a quarter of a second after the last clear cycle the wah
+          // eases back down to the floor.
+          if (++this.sinceCycle > SR * 0.1) this.pN = 0;
+          if (++this.sinceNote > SR * 0.25) this.noteT -= this.noteT * this.relaxK;
+          this.track += (this.noteT - this.track) * followK;
+          target = base + (1 - base) * Math.min(1, this.track * noteAmt);
         }
         this.sweep.set(target);
         const pos = this.sweep.next();
@@ -911,6 +1187,9 @@ function NEON_RIG_DSP() {
     marshall: { C1: 470e-12, C2: 22e-9, C3: 22e-9, R1: 220e3, R2: 1e6, R3: 22e3, R4: 33e3 },
     blackface: { C1: 250e-12, C2: 100e-9, C3: 47e-9, R1: 250e3, R2: 250e3, R3: 10e3, R4: 100e3 },
     hiwatt: { C1: 330e-12, C2: 22e-9, C3: 22e-9, R1: 220e3, R2: 1e6, R3: 25e3, R4: 47e3 },
+    // Mesa: a Blackface-style stack retuned (smaller bass cap, firmer mid) for the Boogie's
+    // tighter, brighter voicing. Not the published Mark/Rectifier values.
+    mesa: { C1: 250e-12, C2: 47e-9, C3: 47e-9, R1: 250e3, R2: 250e3, R3: 25e3, R4: 100e3 },
   };
   // g1: first-stage gain range; GAIN 5..10 sweeps sqrt(g1[0]·g1[1])..g1[1]. clean: the
   // first-stage gain at GAIN 0, so the lower half of the knob has real clean headroom
@@ -922,6 +1201,12 @@ function NEON_RIG_DSP() {
     PLEXI: { stack: 'marshall', pre: false, g1: [0.12, 20], clean: 0.35, g2: 3, hp1: 120, lp1: 7500, asym: 1.6, bright: 1.0, power: 1.4, sag: 0.5, presence: 0.35, out: 0.53 },
     HIWATT: { stack: 'hiwatt', pre: false, g1: [0.0427, 12], clean: 0.15, g2: 2.5, hp1: 90, lp1: 9000, asym: 1.25, bright: 0.4, power: 1.6, sag: 0.2, presence: 0.2, out: 0.72 },
     FENDER: { stack: 'blackface', pre: true, g1: [0.1225, 8], clean: 0.2, g2: 2.5, hp1: 50, lp1: 11000, asym: 1.35, bright: 0.8, power: 1.1, sag: 0.8, presence: 0.15, out: 1.0 },
+    // Mesa/Boogie style (Tim Mahoney of 311): a Fender-derived preamp with the tone stack before a
+    // hotter cascaded stage, a tighter low end (higher hp1) so palm mutes stay focused, more top-end
+    // gain than the vintage voices, and a stiffer power supply. Clean at low GAIN, thick at the top.
+    // Calibrated like the others: GAIN 0 clean (0.9% on a hot input), noon 10% THD at -12 dBFS
+    // (between HIWATT and PLEXI), noon level matches bypass.
+    MESA: { stack: 'mesa', pre: true, g1: [0.05, 28], clean: 0.22, g2: 3.5, hp1: 140, lp1: 8500, asym: 1.4, bright: 0.7, power: 1.5, sag: 0.3, presence: 0.3, out: 0.76 },
   };
   const tube = (x, asym) => (x >= 0 ? Math.tanh(x) : asym * Math.tanh(x / asym));
   const tubeF = (x, asym) => (x >= 0 ? logCosh(x) : asym * asym * logCosh(x / asym));
@@ -1381,9 +1666,11 @@ function NEON_RIG_DSP() {
   registerProcessor('neon-ts', TubeScreamer);
   registerProcessor('neon-chorus', Chorus);
   registerProcessor('neon-trem', Tremolo);
+  registerProcessor('neon-comp', Compressor);
+  registerProcessor('neon-octave', Octave);
   registerProcessor('neon-echo', TapeEcho);
   registerProcessor('neon-phaser', Phaser);
   registerProcessor('neon-flanger', Flanger);
   registerProcessor('neon-reverb', Reverb);
-  return { InputConditioner, Recorder, Tremolo, TapeEcho, Phaser, Flanger, Fuzz, Vibe, FUZZ_VOICES, Amp, Wah, TubeScreamer, Chorus, Reverb, RV_MODES, fmvCoeffs, fmvMag, STACKS, AMP_VOICES };
+  return { InputConditioner, Recorder, Tremolo, Compressor, Octave, TapeEcho, Phaser, Flanger, Fuzz, Vibe, FUZZ_VOICES, Amp, Wah, TubeScreamer, Chorus, Reverb, RV_MODES, fmvCoeffs, fmvMag, STACKS, AMP_VOICES };
 }

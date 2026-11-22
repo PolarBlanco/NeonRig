@@ -20,10 +20,23 @@ const types = {
 const LOCAL_HOST = /^(127\.0\.0\.1|localhost|\[::1\])(:\d+)?$/i;
 
 http.createServer((req, res) => {
+  // Anything unexpected answers 500 instead of crashing the server for everyone.
+  try { handle(req, res); } catch { if (!res.headersSent) res.writeHead(500); res.end(); }
+}).listen(port, '127.0.0.1', () => {
+  const url = `http://127.0.0.1:${port}/`;
+  console.log(`NEON RIG is running at ${url}\nLeave this window open while you play. Press Ctrl+C to stop.`);
+  if (process.argv.includes('--no-open')) return;
+  const cmd = process.platform === 'win32' ? `start "" "${url}"` : process.platform === 'darwin' ? `open "${url}"` : `xdg-open "${url}"`;
+  exec(cmd);
+});
+
+function handle(req, res) {
   if (!LOCAL_HOST.test(req.headers.host || '')) { res.writeHead(421).end('Misdirected request'); return; }
   if (req.method !== 'GET' && req.method !== 'HEAD') { res.writeHead(405, { Allow: 'GET, HEAD' }).end(); return; }
   let rel;
   try { rel = decodeURIComponent(new URL(req.url, 'http://localhost').pathname); } catch { rel = ''; }
+  // A %00 decodes to a NUL byte, which makes fs throw: refuse it up front.
+  if (rel.includes('\0')) { res.writeHead(400).end('Bad request'); return; }
   if (rel === '/') rel = '/index.html';
   const file = path.normalize(path.join(root, rel));
   if (!rel || !file.startsWith(root + path.sep)) { res.writeHead(403).end('Forbidden'); return; }
@@ -36,10 +49,4 @@ http.createServer((req, res) => {
     });
     res.end(data);
   });
-}).listen(port, '127.0.0.1', () => {
-  const url = `http://127.0.0.1:${port}/`;
-  console.log(`NEON RIG is running at ${url}\nLeave this window open while you play. Press Ctrl+C to stop.`);
-  if (process.argv.includes('--no-open')) return;
-  const cmd = process.platform === 'win32' ? `start "" "${url}"` : process.platform === 'darwin' ? `open "${url}"` : `xdg-open "${url}"`;
-  exec(cmd);
-});
+}
