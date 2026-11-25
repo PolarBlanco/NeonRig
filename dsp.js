@@ -8,7 +8,7 @@
  * The models are behavioural approximations written for this app, not circuit-exact
  * clones: Dyna Comp style compressor, Cry Baby style wah, Fuzz Face style fuzz, TS-808 style overdrive, Uni-Vibe
  * style vibe, Phase 90 style phaser, BF-2 style flanger, CE-2W style chorus/vibrato, TR-2 style tremolo,
- * Echoplex style tape echo, RV-6 style reverb, OC-2 style octave,
+ * Echoplex style tape echo, RV-6 style reverb, OC-2 style octave, AC-3 style acoustic simulator,
  * a four-voice amp head, plus the input conditioner (hum filter
  * and noise gate) that sits in front of them, and the looper's recorder.
  */
@@ -60,6 +60,21 @@ function NEON_RIG_DSP() {
     lowpass(fc, q, fs = SR) {
       const w = TAU * Math.min(fc, fs * 0.49) / fs, c = Math.cos(w), al = Math.sin(w) / (2 * q);
       return this.set((1 - c) / 2, 1 - c, (1 - c) / 2, 1 + al, -2 * c, 1 - al);
+    }
+    highpass(fc, q, fs = SR) {
+      const w = TAU * Math.min(fc, fs * 0.49) / fs, c = Math.cos(w), al = Math.sin(w) / (2 * q);
+      return this.set((1 + c) / 2, -(1 + c), (1 + c) / 2, 1 + al, -2 * c, 1 - al);
+    }
+    peaking(fc, q, dbGain, fs = SR) {
+      const A = Math.pow(10, dbGain / 40), w = TAU * Math.min(fc, fs * 0.49) / fs, c = Math.cos(w), al = Math.sin(w) / (2 * q);
+      return this.set(1 + al * A, -2 * c, 1 - al * A, 1 + al / A, -2 * c, 1 - al / A);
+    }
+    // Shelf slope S = 1.
+    highShelf(fc, dbGain, fs = SR) {
+      const A = Math.pow(10, dbGain / 40), w = TAU * Math.min(fc, fs * 0.49) / fs, c = Math.cos(w);
+      const r = 2 * Math.sqrt(A) * Math.sin(w) / 2 * Math.SQRT2;
+      return this.set(A * ((A + 1) + (A - 1) * c + r), -2 * A * ((A - 1) + (A + 1) * c), A * ((A + 1) + (A - 1) * c - r),
+        (A + 1) - (A - 1) * c + r, 2 * ((A - 1) - (A + 1) * c), (A + 1) - (A - 1) * c - r);
     }
     notch(fc, q, fs = SR) {
       const w = TAU * Math.min(fc, fs * 0.49) / fs, c = Math.cos(w), al = Math.sin(w) / (2 * q);
@@ -974,6 +989,66 @@ function NEON_RIG_DSP() {
     }
   }
 
+  // ---------------------------------------------------------------- AC-3 style acoustic simulator
+  //
+  // Makes a magnetic pickup sound more like a miked flat-top acoustic: it takes out the pickup's
+  // low-mid box and its resonant honk (~2.5 kHz), adds the body's air and top resonances (~100 and
+  // ~220 Hz) and the string zing an acoustic has up top, plus three very short reflections for wood.
+  // BLEND mixes it with the electric guitar, so the acoustic can sit on top of the normal sound.
+  // The app steps CAB SIM aside while this is on: an acoustic goes to a PA, not a guitar speaker.
+  // Linear (no drive), so it sits ahead of the drives in the chain; level matches bypass at noon.
+
+  class Acoustic extends PedalProcessor {
+    constructor(options) {
+      super(options);
+      this.p = { body: 0.5, top: 0.5, blend: 1 };
+      this.hp = new Biquad().highpass(75, 0.7);
+      this.air = new Biquad(); this.wood = new Biquad(); this.zing = new Biquad();
+      this.scoop = new Biquad().peaking(550, 0.8, -7);
+      this.honk = new Biquad().peaking(2500, 1.0, -4);
+      this.lp = new Biquad().lowpass(15000, 0.7);
+      this.refl = new DelayLine(Math.ceil(SR * 0.004));
+      this.taps = [0.0009, 0.0017, 0.0026].map((t) => t * SR);
+      this.bodyS = new Smoother(0.5, 30);
+      this.blendS = new Smoother(1, 30);
+      this.applyInitial();
+      this.setEq();
+      this.bodyS.snap(); this.blendS.snap();
+    }
+    setParam(k, v) {
+      if (!Object.prototype.hasOwnProperty.call(this.p, k)) return;
+      this.p[k] = clamp(num(v, this.p[k]), 0, 1);
+      if (k === 'blend') this.blendS.set(this.p.blend);
+      else { this.bodyS.set(this.p.body); this.setEq(); }
+    }
+    setEq() {
+      const b = this.p.body, t = this.p.top;
+      this.air.peaking(105, 1.4, 2 + 6 * b);
+      this.wood.peaking(230, 1.2, 1 + 3 * b);
+      this.zing.highShelf(3800, 4 + 9 * t);
+      // Make-up so noon matches bypass on a guitar note, and the knobs change tone more than level.
+      this.out = ACOUSTIC_OUT * Math.pow(10, -(4 * (b - 0.5) + 2.2 * (t - 0.5)) / 20);
+    }
+    render(iL, iR, oL, oR, n) {
+      const [d0, d1, d2] = this.taps, out = this.out;
+      for (let s = 0; s < n; s++) {
+        const dryL = iL[s], dryR = iR[s];
+        const x = 0.5 * (dryL + dryR);
+        let y = this.honk.process(this.scoop.process(this.wood.process(this.air.process(this.hp.process(x)))));
+        y = this.lp.process(this.zing.process(y));
+        this.refl.write(y);
+        const body = this.bodyS.next();
+        y += 0.22 * body * (this.refl.read(d0) - 0.6 * this.refl.read(d1) + 0.4 * this.refl.read(d2));
+        const bl = this.blendS.next();
+        const wetL = dryL + (y * out - dryL) * bl, wetR = dryR + (y * out - dryR) * bl;
+        const m = this.mix.next();
+        oL[s] = dryL + (wetL - dryL) * m;
+        oR[s] = dryR + (wetR - dryR) * m;
+      }
+    }
+  }
+  const ACOUSTIC_OUT = 1;
+
   // ---------------------------------------------------------------- Cry Baby style wah
   //
   // A resonant band-pass (zero-delay-feedback state-variable filter, stable under fast
@@ -1018,6 +1093,10 @@ function NEON_RIG_DSP() {
       this.noteT = 0;  // where the last note puts the wah, 0..1 of the NOTE range
       this.track = 0;  // noteT, followed at RATE
       this.relaxK = 1 - Math.exp(-1 / (SR * 0.5));
+      // NOTE mode pick detector (the funk quack).
+      this.qF = 0; this.qS = 0; this.qE = 0;
+      this.qFk = 1 - Math.exp(-1 / (SR * 0.01)); this.qSk = 1 - Math.exp(-1 / (SR * 0.06));
+      this.qEr = Math.exp(-1 / (SR * 0.15));
       this.applyInitial();
       this.base.snap();
       this.sweep.set(this.base.v); // start at POSITION, not a few ms below it
@@ -1086,7 +1165,17 @@ function NEON_RIG_DSP() {
           if (++this.sinceCycle > SR * 0.1) this.pN = 0;
           if (++this.sinceNote > SR * 0.25) this.noteT -= this.noteT * this.relaxK;
           this.track += (this.noteT - this.track) * followK;
-          target = base + (1 - base) * Math.min(1, this.track * noteAmt);
+          // Funk (owner, 2026-11-25: "make the wah more funky"): each pick also kicks it open and
+          // lets it fall back over ~150 ms, the "quack" a foot gives on the beat. A pick is where the
+          // energy of the last 10 ms jumps above that of the last 60 ms; on a ringing or fading note
+          // they agree, so a held note still holds its place. A ratio, so soft and hard picking
+          // both quack; nothing below -60 dBFS counts.
+          const e = x * x;
+          this.qF += (e - this.qF) * this.qFk;
+          this.qS += (e - this.qS) * this.qSk;
+          const hit = this.qF > 1e-6 ? clamp((this.qF / (this.qS + 1e-12) - 1.3) / 2, 0, 1) : 0;
+          this.qE = hit > this.qE ? hit : this.qE * this.qEr;
+          target = base + (1 - base) * Math.min(1, this.track * noteAmt + 0.7 * sens * this.qE);
         }
         this.sweep.set(target);
         const pos = this.sweep.next();
@@ -1668,9 +1757,10 @@ function NEON_RIG_DSP() {
   registerProcessor('neon-trem', Tremolo);
   registerProcessor('neon-comp', Compressor);
   registerProcessor('neon-octave', Octave);
+  registerProcessor('neon-acoustic', Acoustic);
   registerProcessor('neon-echo', TapeEcho);
   registerProcessor('neon-phaser', Phaser);
   registerProcessor('neon-flanger', Flanger);
   registerProcessor('neon-reverb', Reverb);
-  return { InputConditioner, Recorder, Tremolo, Compressor, Octave, TapeEcho, Phaser, Flanger, Fuzz, Vibe, FUZZ_VOICES, Amp, Wah, TubeScreamer, Chorus, Reverb, RV_MODES, fmvCoeffs, fmvMag, STACKS, AMP_VOICES };
+  return { InputConditioner, Recorder, Acoustic, Tremolo, Compressor, Octave, TapeEcho, Phaser, Flanger, Fuzz, Vibe, FUZZ_VOICES, Amp, Wah, TubeScreamer, Chorus, Reverb, RV_MODES, fmvCoeffs, fmvMag, STACKS, AMP_VOICES };
 }

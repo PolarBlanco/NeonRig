@@ -39,6 +39,14 @@
         { k: 'oct1', label: 'OCT 1', def: 0.5, tip: 'One octave down: the thick 311 / funk sub. Play single notes; chords make it warble.' },
         { k: 'oct2', label: 'OCT 2', def: 0, tip: 'Two octaves down: a deep rumble, best on the higher strings.' }],
     },
+    acoustic: {
+      title: 'HOLO ACOUSTIC', sub: 'AC-3 STYLE ACOUSTIC SIM', proc: 'neon-acoustic',
+      accent: '#ffcf7a', w: 176, h: 300, footswitch: 'round',
+      knobs: [
+        { k: 'body', label: 'BODY', def: 0.5, tip: 'The wooden body: more boom and box. Up high it sounds like a big dreadnought.' },
+        { k: 'top', label: 'TOP', def: 0.5, tip: 'String sparkle and pick zing.' },
+        { k: 'blend', label: 'BLEND', def: 1, tip: 'Acoustic mixed with your electric. Full is all acoustic; around noon the acoustic sits on top of the electric. CAB SIM steps aside while this is on.' }],
+    },
     wah: {
       title: 'VOLT WAH', sub: 'CRY BABY STYLE WAH', proc: 'neon-wah',
       accent: '#ffb02e', w: 176, h: 300, footswitch: 'round', sweep: true,
@@ -50,7 +58,7 @@
         ['AUTO', 'AUTO', 'Your picking opens the wah: dig in for more quack.'],
         ['LFO', 'LFO', 'The wah sweeps by itself at RATE.'],
         ['FIX', 'FIXED', 'A parked wah at POSITION: the vocal "woman tone" honk.'],
-        ['NOTE', 'NOTE', 'The wah follows the notes you play: higher notes open it, a held note holds it there, and between phrases it settles back to POSITION. Best for single-note lines.']] },
+        ['NOTE', 'NOTE', 'The wah follows the notes you play: higher notes open it, a held note holds it there, and each pick kicks it open for a funky quack. Between phrases it settles back to POSITION. Best for single-note lines.']] },
     },
     fuzz: {
       title: 'PLASMA FUZZ', sub: 'FUZZ FACE STYLE FUZZ', proc: 'neon-fuzz',
@@ -155,11 +163,11 @@
   };
 
   // The usual place for each pedal, guitar to amp: the compressor first, so it evens out the
-  // guitar itself; the octave next, so it hears a clean, single note; then wah; fuzz straight after it (as on Hendrix's board); then overdrive; the
+  // guitar itself; the octave next, so it hears a clean, single note; the acoustic sim, before any drive; then wah; fuzz straight after it (as on Hendrix's board); then overdrive; the
   // vibe, phaser and flanger in front of the amp (as on Van Halen's board); the amp; then what would
   // sit in its effects loop: chorus, tremolo, echo, and reverb last. The board opens with one of
   // each, in this order.
-  const CHAIN_ORDER = ['comp', 'octave', 'wah', 'fuzz', 'ts', 'vibe', 'phaser', 'flanger', 'amp', 'chorus', 'trem', 'echo', 'reverb'];
+  const CHAIN_ORDER = ['comp', 'octave', 'acoustic', 'wah', 'fuzz', 'ts', 'vibe', 'phaser', 'flanger', 'amp', 'chorus', 'trem', 'echo', 'reverb'];
   // The types the board had before newer ones were added (see loadBoard).
   const FIRST_TYPES = ['wah', 'fuzz', 'ts', 'vibe', 'phaser', 'flanger', 'amp', 'chorus', 'trem', 'echo', 'reverb'];
   const MAX_PEDALS = 24; // a tampered save or preset can't freeze the tab with thousands
@@ -187,6 +195,8 @@
     };
   }
 
+  const acousticOn = () => board.pedals.some((p) => p.type === 'acoustic' && p.on);
+
   // A preset with cab: false is meant for a real amp and switches CAB SIM off when loaded.
   const FACTORY = [
     { name: 'Neon Default', pedals: [
@@ -194,30 +204,29 @@
       ['ts', true, { drive: 0.45, tone: 0.5, level: 0.5 }],
       ['chorus', true, { rate: 0.3, depth: 0.5, mode: 'S' }],
       ['reverb', true, { level: 0.35, tone: 0.5, time: 0.45, mode: 1 }]] },
-    { name: 'Glass Shimmer (clean)', pedals: [
-      ['ts', false, { drive: 0.3, tone: 0.5, level: 0.5 }],
-      ['chorus', true, { rate: 0.25, depth: 0.7, mode: 'C' }],
-      ['reverb', true, { level: 0.5, tone: 0.6, time: 0.6, mode: 6 }]] },
     { name: 'Blues Crunch + Spring', pedals: [
       ['ts', true, { drive: 0.65, tone: 0.55, level: 0.6 }],
       ['chorus', false, { rate: 0.3, depth: 0.4, mode: 'S' }],
       ['reverb', true, { level: 0.3, tone: 0.45, time: 0.4, mode: 3 }]] },
-    { name: 'Vibrato Haze', pedals: [
-      ['ts', false, { drive: 0.4, tone: 0.5, level: 0.5 }],
-      ['chorus', true, { rate: 0.45, depth: 0.55, mode: 'V' }],
-      ['reverb', true, { level: 0.4, tone: 0.5, time: 0.55, mode: 2 }]] },
-    { name: 'Funk Auto-Wah', pedals: [
-      ['wah', true, { mode: 'AUTO', pos: 0.08, sens: 0.6, rate: 0.35 }],
-      ['ts', false, { drive: 0.3, tone: 0.55, level: 0.5 }],
-      ['chorus', false, { rate: 0.3, depth: 0.4, mode: 'S' }],
-      ['reverb', true, { level: 0.25, tone: 0.55, time: 0.3, mode: 0 }]] },
     // The wah follows the notes (owner request 2026-11-14): never below a raised floor, opening with
-    // higher notes and holding on sustained ones. Was an LFO sweep from 0.1.
-    { name: 'Wah Lead (follows the notes)', pedals: [
-      ['wah', true, { mode: 'NOTE', pos: 0.3, sens: 0.5, rate: 0.55 }],
-      ['ts', true, { drive: 0.7, tone: 0.5, level: 0.55 }],
-      ['reverb', true, { level: 0.3, tone: 0.5, time: 0.5, mode: 1 }]] },
+    // higher notes and holding on sustained ones. Was an LFO sweep from 0.1. Renamed from "Wah Lead
+    // (follows the notes)" and made funkier (owner, 2026-11-25): each pick now kicks the wah open too
+    // (NOTE mode's quack), with a lower floor for more heel-to-toe range, a quicker follow, and less
+    // drive so the quack stays clear.
+    { name: 'Wah Follow', pedals: [
+      ['wah', true, { mode: 'NOTE', pos: 0.2, sens: 0.65, rate: 0.68 }],
+      ['ts', true, { drive: 0.5, tone: 0.55, level: 0.6 }],
+      ['reverb', true, { level: 0.22, tone: 0.5, time: 0.4, mode: 0 }]] },
+    // "Clean hard" Page (owner, 2026-11-25: the old version was close but had "too much weird crunch in
+    // the back", like an amp's input breaking up; Page played loud and hard but it read as clean-hard):
+    // the PLEXI's GAIN down from 7 to 5.5, so it breaks up on the pick and cleans up as notes ring (THD
+    // on a -12 dBFS note 24% to 15%), about 1 dB louder, a touch less treble and bass.
     { name: 'Plexi Crunch (Zeppelin)', pedals: [
+      ['ts', false, { drive: 0.3, tone: 0.5, level: 0.6 }],
+      ['amp', true, { voice: 'PLEXI', gain: 0.55, bass: 0.5, mid: 0.68, treble: 0.55, volume: 0.56 }],
+      ['reverb', true, { level: 0.25, tone: 0.5, time: 0.4, mode: 2 }]] },
+    // The version before 2026-11-25, kept in case the owner prefers it.
+    { name: 'Plexi Crunch (Zeppelin, old)', pedals: [
       ['ts', false, { drive: 0.3, tone: 0.5, level: 0.6 }],
       ['amp', true, { voice: 'PLEXI', gain: 0.7, bass: 0.55, mid: 0.7, treble: 0.6, volume: 0.5 }],
       ['reverb', true, { level: 0.25, tone: 0.5, time: 0.4, mode: 2 }]] },
@@ -251,10 +260,13 @@
       ['reverb', true, { level: 0.2, tone: 0.5, time: 0.45, mode: 2 }]] },
     // Cream-era Clapton: Marshall cranked, treble rolled right off, and a parked wah for
     // the vocal "woman tone" honk. Use the neck pickup with its tone knob down.
+    // Owner, 2026-11-25: close, but Clapton's has a little more chop and crunch that "kind of blows it
+    // out": the SCREAMER pushes harder (DRIVE 3.5 to 5, LEVEL 7 to 7.5) and the amp sits a notch
+    // hotter (GAIN 8 to 8.8), with a hair more treble for pick attack. A small step.
     { name: 'Cream Woman Tone (Clapton)', pedals: [
       ['wah', true, { mode: 'FIX', pos: 0.3, sens: 0.5, rate: 0.35 }],
-      ['ts', true, { drive: 0.35, tone: 0.4, level: 0.7 }],
-      ['amp', true, { voice: 'PLEXI', gain: 0.8, bass: 0.6, mid: 0.75, treble: 0.3, volume: 0.5 }],
+      ['ts', true, { drive: 0.5, tone: 0.45, level: 0.75 }],
+      ['amp', true, { voice: 'PLEXI', gain: 0.88, bass: 0.6, mid: 0.75, treble: 0.35, volume: 0.5 }],
       ['reverb', true, { level: 0.18, tone: 0.45, time: 0.35, mode: 0 }]] },
     { name: 'Lead + Echo Hall', pedals: [
       ['ts', true, { drive: 0.8, tone: 0.6, level: 0.55 }],
@@ -267,6 +279,14 @@
       ['trem', true, { wave: 'OPTO', rate: 0.42, depth: 0.65 }],
       ['echo', true, { time: 0.55, repeats: 0.3, mix: 0.3 }],
       ['reverb', true, { level: 0.45, tone: 0.55, time: 0.55, mode: 3 }]] },
+    // The same western scene, acoustic (owner, 2026-11-25): HOLO ACOUSTIC turns the electric into a
+    // strummed flat-top, with the opto tremolo, tape echo and spring on top. No amp, and CAB SIM steps
+    // aside while the acoustic is on. BLEND at 8 keeps a little electric twang under it.
+    { name: 'Spaghetti Western (acoustic)', pedals: [
+      ['acoustic', true, { body: 0.6, top: 0.55, blend: 0.8 }],
+      ['trem', true, { wave: 'OPTO', rate: 0.42, depth: 0.5 }],
+      ['echo', true, { time: 0.55, repeats: 0.3, mix: 0.28 }],
+      ['reverb', true, { level: 0.4, tone: 0.55, time: 0.55, mode: 3 }]] },
     // Tape-echo lead, a starting point for GHOST ECHO: a pushed Plexi with ~290 ms repeats that
     // sit behind the notes, and only a touch of reverb so the echoes stay clear.
     // LOCKED (owner signed it off by ear, 2026-11-14): tests/dsp-test.js pins these settings and the
@@ -679,14 +699,21 @@
       // Like a pedal tuner, the tuner mutes the output (unless its MUTE is off).
       const muted = io.master <= -40 || (tuner.open && tuner.mute);
       this.master.gain.setTargetAtTime(muted ? 0 : dbToGain(io.master), t, 0.01);
-      this.cabWet.gain.setTargetAtTime(io.cab ? 1 : 0, t, 0.01);
-      this.cabDry.gain.setTargetAtTime(io.cab ? 0 : 1, t, 0.01);
+      this.applyCab();
       const lp = board.loop;
       this.loopOut.gain.setTargetAtTime(lp.loopVol <= -40 ? 0 : dbToGain(lp.loopVol), t, 0.01);
       this.clickOut.gain.setTargetAtTime(lp.clickVol <= -40 ? 0 : dbToGain(lp.clickVol), t, 0.01);
       this.cond.port.postMessage({ type: 'param', name: 'hum', value: io.hum });
       this.cond.port.postMessage({ type: 'param', name: 'gate', value: io.gate });
       this.applyChannel();
+    },
+    // An acoustic goes to a PA, not a guitar speaker, so CAB SIM steps aside while HOLO ACOUSTIC is on
+    // (switched on, or removed or added while on: see rewire).
+    applyCab() {
+      if (!this.ctx) return;
+      const t = this.ctx.currentTime, cab = board.io.cab && !acousticOn();
+      this.cabWet.gain.setTargetAtTime(cab ? 1 : 0, t, 0.01);
+      this.cabDry.gain.setTargetAtTime(cab ? 0 : 1, t, 0.01);
     },
     async setSink(id, quiet) {
       if (!this.ctx || typeof this.ctx.setSinkId !== 'function') return;
@@ -718,6 +745,7 @@
     rewire(immediate) {
       if (!this.ctx) return;
       this.syncNodes();
+      this.applyCab();
       const patch = () => {
         this.chainIn.disconnect();
         this.nodes.forEach((n) => n.disconnect());
@@ -738,6 +766,7 @@
     engaged(p) {
       const n = this.nodes.get(p.id);
       if (n) n.port.postMessage({ type: 'engaged', value: p.on });
+      if (p.type === 'acoustic') this.applyCab();
     },
     latencyMs() {
       const c = this.ctx;
@@ -1233,6 +1262,7 @@
   function toggle(p) {
     p.on = !p.on;
     A.engaged(p);
+    if (p.type === 'acoustic' && p.on && board.io.cab) toast('CAB SIM steps aside while HOLO ACOUSTIC is on: an acoustic goes to a PA, not a guitar speaker.');
     const el = boardEl.querySelector(`.pedal[data-id="${p.id}"]`);
     if (el) el.classList.toggle('on', p.on);
     const chip = chainEl.querySelector(`.chip[data-id="${p.id}"]`);

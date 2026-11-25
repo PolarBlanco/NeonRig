@@ -60,7 +60,8 @@ the address it prints.
 | --- | --- | --- |
 | **FLUX COMP** | MXR Dyna Comp / Ross compressor | Sustain, Level, Blend. Evens out your picking and makes notes ring longer without adding drive. **BLEND** below full keeps your pick attack. Noon LEVEL matches bypass |
 | **DARK MATTER** | Boss OC-2 octave | Direct, Oct 1, Oct 2. Adds a note one and/or two octaves below what you play, following your picking dynamics. Made for single notes: chords make it warble, as on the real pedal |
-| **VOLT WAH** | Dunlop Cry Baby (GCB95) wah | Position, Sens, Rate. Modes: **AUTO** (your picking opens the wah), **LFO** (sweeps by itself), **FIXED** ("parked" wah at POSITION), **NOTE** (follows the notes you play: higher notes open it, held notes hold it, and it never drops below POSITION) |
+| **HOLO ACOUSTIC** | Boss AC-3 acoustic simulator | Body, Top, Blend. Makes your electric sound like a strummed acoustic: more body boom, less pickup honk, more string sparkle. **BLEND** below full layers the acoustic on top of your electric. **CAB SIM** steps aside while it's on, since an acoustic goes to a PA, not a guitar speaker |
+| **VOLT WAH** | Dunlop Cry Baby (GCB95) wah | Position, Sens, Rate. Modes: **AUTO** (your picking opens the wah), **LFO** (sweeps by itself), **FIXED** ("parked" wah at POSITION), **NOTE** (follows the notes you play: higher notes open it, held notes hold it, each pick kicks it open for a funky quack, and it never drops below POSITION) |
 | **PLASMA FUZZ** | Dallas Arbiter Fuzz Face | Fuzz, Volume. **GERMANIUM** (warm, 1967 Hendrix) / **SILICON** (brighter, 1969-70). Roll back your guitar's volume to clean it up |
 | **NEON SCREAMER** | Tube Screamer (TS-808) overdrive | Drive, Tone, Level |
 | **ORBIT VIBE** | Shin-ei Uni-Vibe | Speed, Intensity. **CHORUS** (throbbing phase swirl) / **VIBRATO** (pitch wobble). The lamp glows with the sweep |
@@ -82,10 +83,12 @@ swap the board out: it switches the pedals on or off and sets their knobs, so yo
 Your signal-chain order and where you've placed the pedals stay as they are. A preset only adds a pedal if the
 board doesn't have it (say you removed it).
 
-**19 factory presets** are starting points, for example **Psychedelic Hendrix** (fuzz and vibe in Hendrix's
-order), **Cream Woman Tone (Clapton)**, **Texas Blues (SRV)** (slow, smooth blues with the compressor),
-**Spaghetti Western** (tremolo, tape echo and deep spring), **Echoplex Lead**,
-**Phase Crunch**, **Jet Flanger** and **Use of Time (311)** (clean MESA, a short echo and a spacey CE-1 vibrato).
+**18 factory presets** are starting points, for example **Psychedelic Hendrix** (fuzz and vibe in Hendrix's
+order), **Cream Woman Tone (Clapton)**, **Plexi Crunch (Zeppelin)** (a loud, "clean hard" Plexi; the earlier,
+crunchier version is kept as **Plexi Crunch (Zeppelin, old)**), **Texas Blues (SRV)** (slow, smooth blues with the
+compressor), **Wah Follow** (a funky wah that follows the notes you play), **Spaghetti Western** (tremolo, tape echo
+and deep spring) and its **acoustic** version, **Echoplex Lead**, **Phase Crunch**, **Jet Flanger** and
+**Use of Time (311)** (clean MESA, a short echo and a spacey CE-1 vibrato).
 
 The models are approximations written for this app, not circuit-exact clones. Beyond the pedals there's a
 metronome and a simple chord-locked looper (see below), but no multitrack recording.
@@ -138,6 +141,7 @@ more than an interface, so press **LEARN NOISE** once.
 4. **INPUT** and **OUTPUT** on AUTO pick the interface by themselves. **CH: AUTO** picks the input your guitar is
    on. The small 1/2 meters show which one that is.
 5. **CAB SIM** voices the output like a guitar speaker, which is best for headphones. Turn it off if you feed a real amp.
+   It steps aside by itself while **HOLO ACOUSTIC** is on.
 
 ## Playing through your real amp
 
